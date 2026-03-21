@@ -10,9 +10,11 @@ openai
 # Pin transformers<5 so it works on both Intel and Apple Silicon Macs
 transformers<5.0
 peft
+# For CUDA GPU support, install torch separately with:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+# The plain entry below installs a CPU-only build (default pip behaviour).
 torch
-# PyTorch is compiled against NumPy 1.x; NumPy 2.x causes a runtime crash
-numpy<2
+numpy
 datasets
 python-dotenv
 Pillow
