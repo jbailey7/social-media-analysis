@@ -12,7 +12,7 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 
-from agents.nodes import AgentNodes, route_after_router
+from agents.nodes import AgentNodes
 
 
 # ---------------------------------------------------------------------------
@@ -26,8 +26,6 @@ def make_state(**kwargs) -> dict:
         "rewritten_query": "",
         "retrieved_docs": [],
         "answer": "",
-        "use_hyde": False,
-        "router_reason": "",
     }
     return {**base, **kwargs}
 
@@ -42,102 +40,66 @@ def make_nodes(retriever=None, model=None, tokenizer=None) -> AgentNodes:
 
 
 # ---------------------------------------------------------------------------
-# route_after_router (stateless, no dependencies)
+# hyde_node
 # ---------------------------------------------------------------------------
 
-def test_route_after_router_returns_hyde_node_when_true():
-    assert route_after_router(make_state(use_hyde=True)) == "hyde_node"
-
-
-def test_route_after_router_returns_retrieve_node_when_false():
-    assert route_after_router(make_state(use_hyde=False)) == "retrieve_node"
-
-
-# ---------------------------------------------------------------------------
-# router_node
-# ---------------------------------------------------------------------------
-
-def test_router_node_parses_valid_json():
+def test_hyde_node_sets_rewritten_query():
     nodes = make_nodes()
-    nodes.llm = RunnableLambda(
-        lambda _: AIMessage(content='{"use_hyde": true, "reason": "sentiment question"}')
-    )
-    result = nodes.router_node(make_state())
+    nodes.llm = RunnableLambda(lambda _: AIMessage(content="just bought more $BTC lol"))
 
-    assert result["use_hyde"] is True
-    assert result["router_reason"] == "sentiment question"
+    result = nodes.hyde_node(make_state(question="What did people say about Bitcoin?"))
+
+    assert result["rewritten_query"] == "just bought more $BTC lol"
 
 
-def test_router_node_falls_back_on_invalid_json():
-    """
-    When the LLM returns something that isn't valid JSON, router_node should
-    default to direct retrieval rather than crashing.
-    """
+def test_hyde_node_preserves_other_state_fields():
     nodes = make_nodes()
-    nodes.llm = RunnableLambda(lambda _: AIMessage(content="this is not json at all"))
+    nodes.llm = RunnableLambda(lambda _: AIMessage(content="hypothetical post"))
 
-    result = nodes.router_node(make_state())
+    result = nodes.hyde_node(make_state(question="test?", answer="existing"))
 
-    assert result["use_hyde"] is False
-    assert "JSON parse failed" in result["router_reason"]
-
-
-def test_router_node_falls_back_on_empty_response():
-    nodes = make_nodes()
-    nodes.llm = RunnableLambda(lambda _: AIMessage(content=""))
-
-    result = nodes.router_node(make_state())
-
-    assert result["use_hyde"] is False
-
-
-def test_router_node_clears_rewritten_query():
-    """router_node should always reset rewritten_query to empty string."""
-    nodes = make_nodes()
-    nodes.llm = RunnableLambda(
-        lambda _: AIMessage(content='{"use_hyde": false, "reason": "factual"}')
-    )
-    result = nodes.router_node(make_state(rewritten_query="stale value from previous run"))
-
-    assert result["rewritten_query"] == ""
+    assert result["question"] == "test?"
+    assert result["answer"] == "existing"
 
 
 # ---------------------------------------------------------------------------
 # retrieve_node
 # ---------------------------------------------------------------------------
 
-def test_retrieve_node_uses_rewritten_query_when_hyde():
+def test_retrieve_node_uses_rewritten_query():
     mock_retriever = MagicMock()
     mock_retriever.retrieve.return_value = []
 
     nodes = make_nodes(retriever=mock_retriever)
-    nodes.retrieve_node(make_state(use_hyde=True, rewritten_query="hypothetical post"))
+    nodes.retrieve_node(make_state(rewritten_query="hypothetical post"))
 
     mock_retriever.retrieve.assert_called_once_with("hypothetical post", k=10)
 
 
-def test_retrieve_node_uses_original_question_when_no_hyde():
+def test_retrieve_node_falls_back_to_question_when_rewrite_empty():
+    """
+    If rewritten_query is empty (e.g. hyde_node failed), retrieve_node
+    should fall back to the original question rather than querying with
+    an empty string.
+    """
     mock_retriever = MagicMock()
     mock_retriever.retrieve.return_value = []
 
     nodes = make_nodes(retriever=mock_retriever)
-    nodes.retrieve_node(make_state(use_hyde=False, question="original question"))
+    nodes.retrieve_node(make_state(rewritten_query="", question="original question"))
 
     mock_retriever.retrieve.assert_called_once_with("original question", k=10)
 
 
-def test_retrieve_node_falls_back_to_question_when_hyde_but_empty_rewrite():
-    """
-    If use_hyde=True but rewritten_query is empty (e.g. HyDE node failed),
-    retrieve_node should fall back to the original question.
-    """
+def test_retrieve_node_returns_docs_in_state():
     mock_retriever = MagicMock()
-    mock_retriever.retrieve.return_value = []
+    mock_retriever.retrieve.return_value = [Document(page_content="a post", metadata={})]
 
     nodes = make_nodes(retriever=mock_retriever)
-    nodes.retrieve_node(make_state(use_hyde=True, rewritten_query="", question="fallback"))
+    result = nodes.retrieve_node(make_state(rewritten_query="query"))
 
-    mock_retriever.retrieve.assert_called_once_with("fallback", k=10)
+    assert len(result["retrieved_docs"]) == 1
+    assert result["retrieved_docs"][0].page_content == "a post"
 
 
 # ---------------------------------------------------------------------------

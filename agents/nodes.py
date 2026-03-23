@@ -6,20 +6,22 @@ model, tokenizer) via constructor injection. This avoids module-level mutable
 globals and makes the nodes straightforward to test with mock dependencies.
 
 Nodes:
-  router_node  — gpt-4o-mini decides whether to use HyDE
-  hyde_node    — gpt-4o-mini generates a hypothetical social media post
-  retrieve_node — Pinecone retrieval using rewritten or original query
-  answer_node  — fine-tuned SmolLM2-360M generates the final answer
+  hyde_node     — gpt-4o-mini generates a hypothetical social media post
+  retrieve_node — Pinecone retrieval using the HyDE-rewritten query
+  answer_node   — fine-tuned SmolLM2-360M generates the final answer
+
+HyDE is always applied. Experiments showed that always generating a
+hypothetical post before retrieval consistently outperforms conditional
+routing (see notebooks/rag_experiments.ipynb, Experiment 2).
 """
 
-import json
 import os
 
 from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
 
 from agents.state import AgentState
-from agents.prompts import ROUTER_PROMPT, HYDE_PROMPT
+from agents.prompts import HYDE_PROMPT
 from models.smollm import generate_summary
 from rag.retriever import PineconeRetriever
 
@@ -44,59 +46,32 @@ class AgentNodes:
             openai_api_key=os.getenv("OPENAI_API_KEY"),
         )
 
-    # --- Node 1: Router ---
-
-    def router_node(self, state: AgentState) -> AgentState:
-        """
-        Uses gpt-4o-mini to decide whether HyDE rewriting should be applied.
-        Returns updated state with use_hyde and router_reason set.
-        """
-        chain = ROUTER_PROMPT | self.llm | StrOutputParser()
-        raw = chain.invoke({"question": state["question"]})
-
-        try:
-            parsed = json.loads(raw)
-            use_hyde = bool(parsed.get("use_hyde", False))
-            reason = parsed.get("reason", "")
-        except (json.JSONDecodeError, KeyError):
-            # If the LLM fails to return valid JSON, default to direct retrieval
-            use_hyde = False
-            reason = "JSON parse failed; defaulting to direct retrieval"
-
-        return {
-            **state,
-            "use_hyde": use_hyde,
-            "router_reason": reason,
-            "rewritten_query": "",
-        }
-
-    # --- Node 2: HyDE ---
+    # --- Node 1: HyDE ---
 
     def hyde_node(self, state: AgentState) -> AgentState:
         """
-        Uses gpt-4o-mini to generate a hypothetical social media post.
-        Only called when router_node sets use_hyde=True.
+        Uses gpt-4o-mini to generate a hypothetical social media post that
+        resembles what a relevant result would look like. Embedding this post
+        instead of the raw question improves retrieval because the index
+        contains posts, not questions.
         """
         chain = HYDE_PROMPT | self.llm | StrOutputParser()
         hypothetical = chain.invoke({"question": state["question"]})
         return {**state, "rewritten_query": hypothetical}
 
-    # --- Node 3: Retriever ---
+    # --- Node 2: Retriever ---
 
     def retrieve_node(self, state: AgentState) -> AgentState:
         """
         Retrieves top-10 relevant social media posts from Pinecone.
-        Uses the rewritten query if HyDE was applied, otherwise the original question.
+        Uses the HyDE-rewritten query; falls back to the original question
+        if rewritten_query is empty.
         """
-        query = (
-            state["rewritten_query"]
-            if state.get("use_hyde") and state["rewritten_query"]
-            else state["question"]
-        )
+        query = state["rewritten_query"] if state["rewritten_query"] else state["question"]
         docs = self.retriever.retrieve(query, k=10)
         return {**state, "retrieved_docs": docs}
 
-    # --- Node 4: Answer (fine-tuned SmolLM2-360M) ---
+    # --- Node 3: Answer (fine-tuned SmolLM2-360M) ---
 
     def answer_node(self, state: AgentState) -> AgentState:
         """
@@ -117,10 +92,3 @@ class AgentNodes:
         )
         answer = generate_summary(self.model, self.tokenizer, context, max_new_tokens=150)
         return {**state, "answer": answer}
-
-
-# --- Conditional edge function (stateless, no dependencies needed) ---
-
-def route_after_router(state: AgentState) -> str:
-    """Returns the next node name based on the router's decision."""
-    return "hyde_node" if state.get("use_hyde") else "retrieve_node"

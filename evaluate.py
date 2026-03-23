@@ -88,28 +88,22 @@ def run_basic_rag(question: str, retriever) -> str:
 
 def run_advanced_rag(question: str, nodes) -> dict:
     """
-    Runs router → optional HyDE → retrieve → SmolLM2 answer using the
-    provided AgentNodes instance. Returns a dict with 'answer' and trace fields.
+    Runs HyDE → retrieve → SmolLM2 answer using the provided AgentNodes instance.
+    HyDE is always applied. Returns a dict with 'answer' and trace fields.
     """
     state = {
         "question": question,
         "rewritten_query": "",
         "retrieved_docs": [],
         "answer": "",
-        "use_hyde": False,
-        "router_reason": "",
     }
 
-    state = nodes.router_node(state)
-    if state["use_hyde"]:
-        state = nodes.hyde_node(state)
+    state = nodes.hyde_node(state)
     state = nodes.retrieve_node(state)
     state = nodes.answer_node(state)
 
     return {
         "answer": state["answer"],
-        "use_hyde": state["use_hyde"],
-        "router_reason": state["router_reason"],
         "rewritten_query": state.get("rewritten_query", ""),
     }
 
@@ -165,13 +159,13 @@ def main():
         print("  Running C (Advanced RAG, base SmolLM2)...")
         c = run_advanced_rag(question, base_nodes)
         entry["c_advanced_base"] = c["answer"]
-        entry["c_trace"] = {k: v for k, v in c.items() if k != "answer"}
+        entry["c_hyde_query"] = c["rewritten_query"]
 
         # Config D
         print("  Running D (Advanced RAG, fine-tuned SmolLM2)...")
         d = run_advanced_rag(question, ft_nodes)
         entry["d_advanced_finetuned"] = d["answer"]
-        entry["d_trace"] = {k: v for k, v in d.items() if k != "answer"}
+        entry["d_hyde_query"] = d["rewritten_query"]
 
         results.append(entry)
 

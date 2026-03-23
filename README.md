@@ -243,12 +243,22 @@ A GPU is recommended (~4 minutes on CUDA; significantly longer on CPU). No API k
 - [x] Fill in findings and conclusions in the notebook
 - [x] Production defaults (k=10, individual posts, `text-embedding-3-small`) confirmed by experiments
 - [x] Re-fine-tune answer model on synthetic Exorde data (domain-matched)
+- [x] Build `exorde-hybrid` index and fit BM25 params (`python ingest_hybrid.py`)
+- [x] Run Experiment 6 (hybrid search) in the notebook and fill in findings
+- [x] Remove router node — pipeline simplified to always apply HyDE (START → hyde_node → retrieve_node → answer_node → END)
+
+### Not Pursued
+
+**Metadata filtering** — pre-filtering the vector search by metadata fields (theme, date, source) before querying Pinecone was considered but not implemented for three reasons specific to this dataset:
+
+1. **Single-week coverage** — the dataset is `exorde-social-media-december-2024-week1`. All 50,000 posts are from the same week, making date filtering meaningless.
+2. **Automated theme tags** — `primary_theme` is generated automatically by Exorde's classifier, not human-annotated. Social media posts frequently span multiple topics, and single-label classification produces enough noise that hard filtering on theme would exclude genuinely relevant posts.
+3. **No source field** — the dataset does not include which platform or domain each post came from, ruling out source-based filtering entirely.
+
+Metadata filtering would be a high-value improvement on a multi-week, multi-source corpus with curated labels. It was a design decision not to pursue it here rather than a gap.
 
 ### Upcoming
-- [ ] Run `python ingest_hybrid.py` on GPU to build `exorde-hybrid` index and fit BM25 params
-- [ ] Run Experiment 6 in the notebook; fill in findings and update `HybridRetriever` default alpha
-- [ ] If hybrid outperforms dense, switch `app.py` to use `HybridRetriever`
-- [ ] Revisit HyDE routing — experiments show always-HyDE outperforms conditional HyDE; consider simplifying pipeline to always apply HyDE without a router node
+- [ ] Switch `app.py` to use `HybridRetriever` if Experiment 6 confirms hybrid outperforms dense
 
 ## Notes
 

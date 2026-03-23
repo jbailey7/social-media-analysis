@@ -2,15 +2,17 @@
 LangGraph graph definition.
 
 Graph structure:
-  START → router_node
-  router_node --[use_hyde=True]--> hyde_node --> retrieve_node --> answer_node --> END
-  router_node --[use_hyde=False]-------------> retrieve_node --> answer_node --> END
+  START → hyde_node → retrieve_node → answer_node → END
+
+HyDE is always applied — experiments confirmed that always generating a
+hypothetical document before retrieval outperforms conditional routing
+(see notebooks/rag_experiments.ipynb, Experiment 2).
 """
 
 from langgraph.graph import StateGraph, START, END
 
 from agents.state import AgentState
-from agents.nodes import AgentNodes, route_after_router
+from agents.nodes import AgentNodes
 
 
 def build_graph(nodes: AgentNodes):
@@ -22,17 +24,11 @@ def build_graph(nodes: AgentNodes):
     """
     builder = StateGraph(AgentState)
 
-    builder.add_node("router_node", nodes.router_node)
     builder.add_node("hyde_node", nodes.hyde_node)
     builder.add_node("retrieve_node", nodes.retrieve_node)
     builder.add_node("answer_node", nodes.answer_node)
 
-    builder.add_edge(START, "router_node")
-    builder.add_conditional_edges(
-        "router_node",
-        route_after_router,
-        {"hyde_node": "hyde_node", "retrieve_node": "retrieve_node"},
-    )
+    builder.add_edge(START, "hyde_node")
     builder.add_edge("hyde_node", "retrieve_node")
     builder.add_edge("retrieve_node", "answer_node")
     builder.add_edge("answer_node", END)

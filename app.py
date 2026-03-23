@@ -4,7 +4,7 @@ Streamlit front-end for the Social Media Intelligence Agent.
 Runs the multi-agent LangGraph pipeline on user queries and displays:
   - The generated answer (from fine-tuned SmolLM2-360M)
   - Retrieved source posts
-  - Agent trace (router decision, HyDE query if used)
+  - Agent trace (HyDE rewritten query)
   - LangGraph visualization in the sidebar
 """
 
@@ -61,7 +61,6 @@ with st.sidebar:
 
     st.divider()
     st.markdown("**Models**")
-    st.markdown("- Router: `gpt-4o-mini`")
     st.markdown("- HyDE rewriter: `gpt-4o-mini`")
     st.markdown(f"- Retriever: Pinecone (`{os.getenv('PINECONE_INDEX_NAME', 'exorde-week1')}`)")
     st.markdown("- Answer generator: `SmolLM2-360M` (LoRA fine-tuned)")
@@ -88,8 +87,6 @@ if submitted and question.strip():
             "rewritten_query": "",
             "retrieved_docs": [],
             "answer": "",
-            "use_hyde": False,
-            "router_reason": "",
         }
         result = graph.invoke(initial_state)
 
@@ -99,11 +96,8 @@ if submitted and question.strip():
 
     # --- Agent trace ---
     with st.expander("Agent trace", expanded=False):
-        st.markdown(f"**Router decision:** `use_hyde = {result['use_hyde']}`")
-        st.markdown(f"**Reason:** {result['router_reason']}")
-        if result["use_hyde"] and result["rewritten_query"]:
-            st.markdown("**HyDE rewritten query:**")
-            st.info(result["rewritten_query"])
+        st.markdown("**HyDE rewritten query:**")
+        st.info(result["rewritten_query"])
 
     # --- Retrieved posts ---
     with st.expander(f"Retrieved posts ({len(result['retrieved_docs'])} found)", expanded=False):
