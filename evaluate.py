@@ -129,7 +129,7 @@ def run_basic_rag(question: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _build_dialogue(docs, question: str) -> str:
-    """Format retrieved docs as a SAMSum-style dialogue for SmolLM2."""
+    """Format retrieved docs and question as context for SmolLM2."""
     lines = []
     for i, doc in enumerate(docs[:7], start=1):
         theme = doc.metadata.get("primary_theme", "General")
