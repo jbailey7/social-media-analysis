@@ -10,20 +10,23 @@ Graph structure:
 from langgraph.graph import StateGraph, START, END
 
 from agents.state import AgentState
-from agents.nodes import router_node, hyde_node, retrieve_node, answer_node, route_after_router
+from agents.nodes import AgentNodes, route_after_router
 
 
-def build_graph():
-    """Build and compile the multi-agent LangGraph."""
+def build_graph(nodes: AgentNodes):
+    """
+    Build and compile the multi-agent LangGraph.
+
+    Args:
+        nodes: Initialised AgentNodes instance carrying all dependencies.
+    """
     builder = StateGraph(AgentState)
 
-    # Register nodes
-    builder.add_node("router_node", router_node)
-    builder.add_node("hyde_node", hyde_node)
-    builder.add_node("retrieve_node", retrieve_node)
-    builder.add_node("answer_node", answer_node)
+    builder.add_node("router_node", nodes.router_node)
+    builder.add_node("hyde_node", nodes.hyde_node)
+    builder.add_node("retrieve_node", nodes.retrieve_node)
+    builder.add_node("answer_node", nodes.answer_node)
 
-    # Edges
     builder.add_edge(START, "router_node")
     builder.add_conditional_edges(
         "router_node",
@@ -49,7 +52,3 @@ def save_graph_image(graph, path: str = "graph.png"):
         print(f"Graph saved to {path}")
     except Exception as e:
         print(f"Could not save graph image: {e}")
-
-
-# Compile at import time so app.py can import `compiled_graph` directly
-compiled_graph = build_graph()

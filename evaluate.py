@@ -5,10 +5,10 @@ Runs 7 test questions through 4 configurations and saves results to
 evaluation_results.json.
 
 Configurations:
-  a. Base LLM          — gpt-4o-mini with no retrieval
-  b. Basic RAG         — Pinecone retriever + gpt-4o-mini
-  c. Advanced RAG      — Full agentic pipeline (router + HyDE + retriever) with base SmolLM2
-  d. Advanced RAG (FT) — Full agentic pipeline with LoRA fine-tuned SmolLM2
+  A — Base LLM          — gpt-4o-mini with no retrieval
+  B — Basic RAG         — Pinecone retriever + gpt-4o-mini
+  C — Advanced RAG      — Full agentic pipeline with base SmolLM2-360M
+  D — Advanced RAG (FT) — Full agentic pipeline with LoRA fine-tuned SmolLM2-360M
 
 Usage:
   python evaluate.py
@@ -48,45 +48,6 @@ llm = ChatOpenAI(
 )
 
 # ---------------------------------------------------------------------------
-# Resource caches (load once, reuse across questions)
-# ---------------------------------------------------------------------------
-
-_retriever = None
-_ft_model_cache = None
-_base_model_cache = None
-
-
-def get_retriever():
-    global _retriever
-    if _retriever is None:
-        print("  [init] Building Pinecone retriever (may take ~2 min)...")
-        from rag.retriever import PineconeRetriever
-        _retriever = PineconeRetriever()
-        print("  [init] Retriever ready.")
-    return _retriever
-
-
-def get_ft_model():
-    global _ft_model_cache
-    if _ft_model_cache is None:
-        print("  [init] Loading fine-tuned SmolLM2-360M...")
-        from models.smollm import load_model
-        _ft_model_cache = load_model()
-        print("  [init] Fine-tuned model ready.")
-    return _ft_model_cache
-
-
-def get_base_model():
-    global _base_model_cache
-    if _base_model_cache is None:
-        print("  [init] Loading base SmolLM2-360M (no LoRA)...")
-        from models.smollm import load_base_model
-        _base_model_cache = load_base_model()
-        print("  [init] Base model ready.")
-    return _base_model_cache
-
-
-# ---------------------------------------------------------------------------
 # Config A: Base LLM (no RAG)
 # ---------------------------------------------------------------------------
 
@@ -103,15 +64,12 @@ def run_base_llm(question: str) -> str:
 # Config B: Basic RAG (retriever + gpt-4o-mini, no agents)
 # ---------------------------------------------------------------------------
 
-def run_basic_rag(question: str) -> str:
-    retriever = get_retriever()
+def run_basic_rag(question: str, retriever) -> str:
     docs = retriever.retrieve(question, k=10)
-
     context = "\n\n".join([
         f"Post [{doc.metadata.get('primary_theme', 'General')}]: {doc.page_content}"
         for doc in docs
     ])
-
     prompt = ChatPromptTemplate.from_messages([
         ("system", (
             "You are a helpful assistant that answers questions about social media trends "
@@ -128,23 +86,11 @@ def run_basic_rag(question: str) -> str:
 # Config C & D: Advanced Agentic RAG
 # ---------------------------------------------------------------------------
 
-def _build_dialogue(docs, question: str) -> str:
-    """Format retrieved docs and question as context for SmolLM2."""
-    lines = []
-    for i, doc in enumerate(docs[:7], start=1):
-        theme = doc.metadata.get("primary_theme", "General")
-        lines.append(f"Post {i} [{theme}]: {doc.page_content}")
-    lines.append(f"\nQuestion: {question}")
-    return "\n".join(lines)
-
-
-def run_advanced_rag(question: str, use_fine_tuned: bool) -> dict:
+def run_advanced_rag(question: str, nodes) -> dict:
     """
-    Runs router → optional HyDE → retrieve → SmolLM2 answer.
-    Returns a dict with 'answer' and agent trace fields.
+    Runs router → optional HyDE → retrieve → SmolLM2 answer using the
+    provided AgentNodes instance. Returns a dict with 'answer' and trace fields.
     """
-    from agents.nodes import router_node, hyde_node, retrieve_node
-
     state = {
         "question": question,
         "rewritten_query": "",
@@ -154,23 +100,14 @@ def run_advanced_rag(question: str, use_fine_tuned: bool) -> dict:
         "router_reason": "",
     }
 
-    state = router_node(state)
+    state = nodes.router_node(state)
     if state["use_hyde"]:
-        state = hyde_node(state)
-    state = retrieve_node(state)
-
-    dialogue = _build_dialogue(state["retrieved_docs"], question)
-
-    from models.smollm import generate_summary
-    if use_fine_tuned:
-        model, tokenizer = get_ft_model()
-    else:
-        model, tokenizer = get_base_model()
-
-    answer = generate_summary(model, tokenizer, dialogue, max_new_tokens=150)
+        state = nodes.hyde_node(state)
+    state = nodes.retrieve_node(state)
+    state = nodes.answer_node(state)
 
     return {
-        "answer": answer,
+        "answer": state["answer"],
         "use_hyde": state["use_hyde"],
         "router_reason": state["router_reason"],
         "rewritten_query": state.get("rewritten_query", ""),
@@ -183,14 +120,28 @@ def run_advanced_rag(question: str, use_fine_tuned: bool) -> dict:
 
 def main():
     print("=" * 80)
-    print("Stitching Project — Evaluation")
+    print("Social Media Intelligence Agent — Evaluation")
     print("=" * 80)
 
-    # Pre-load all resources before the question loop
-    print("\nPre-loading resources...")
-    get_retriever()
-    get_ft_model()
-    get_base_model()
+    # Initialise all resources once before the question loop
+    print("\nInitialising resources...")
+
+    from rag.retriever import PineconeRetriever
+    from models.smollm import load_model, load_base_model
+    from agents.nodes import AgentNodes
+
+    print("  Loading Pinecone retriever (may take ~2 min)...")
+    retriever = PineconeRetriever()
+
+    print("  Loading base SmolLM2-360M (no LoRA)...")
+    base_model, base_tokenizer = load_base_model()
+
+    print("  Loading fine-tuned SmolLM2-360M...")
+    ft_model, ft_tokenizer = load_model()
+
+    base_nodes = AgentNodes(retriever, base_model, base_tokenizer)
+    ft_nodes   = AgentNodes(retriever, ft_model,   ft_tokenizer)
+
     print("\nAll resources loaded. Starting evaluation.\n")
     print("=" * 80)
 
@@ -208,17 +159,17 @@ def main():
 
         # Config B
         print("  Running B (Basic RAG)...")
-        entry["b_basic_rag"] = run_basic_rag(question)
+        entry["b_basic_rag"] = run_basic_rag(question, retriever)
 
         # Config C
         print("  Running C (Advanced RAG, base SmolLM2)...")
-        c = run_advanced_rag(question, use_fine_tuned=False)
+        c = run_advanced_rag(question, base_nodes)
         entry["c_advanced_base"] = c["answer"]
         entry["c_trace"] = {k: v for k, v in c.items() if k != "answer"}
 
         # Config D
         print("  Running D (Advanced RAG, fine-tuned SmolLM2)...")
-        d = run_advanced_rag(question, use_fine_tuned=True)
+        d = run_advanced_rag(question, ft_nodes)
         entry["d_advanced_finetuned"] = d["answer"]
         entry["d_trace"] = {k: v for k, v in d.items() if k != "answer"}
 

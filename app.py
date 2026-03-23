@@ -31,13 +31,21 @@ st.caption(
 )
 
 
-# --- Load graph and model (cached so they only load once) ---
+# --- Load all resources and compile graph (cached so they only load once) ---
 
 @st.cache_resource(show_spinner="Building agent graph and loading models...")
 def load_everything():
-    from agents.graph import compiled_graph, save_graph_image
-    save_graph_image(compiled_graph, path="graph.png")
-    return compiled_graph
+    from rag.retriever import PineconeRetriever
+    from models.smollm import load_model
+    from agents.nodes import AgentNodes
+    from agents.graph import build_graph, save_graph_image
+
+    retriever = PineconeRetriever()
+    model, tokenizer = load_model()
+    nodes = AgentNodes(retriever, model, tokenizer)
+    graph = build_graph(nodes)
+    save_graph_image(graph, path="graph.png")
+    return graph
 
 
 graph = load_everything()
