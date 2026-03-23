@@ -25,3 +25,5 @@ rank_bm25
 pandas
 matplotlib
 jupyter
+# Hybrid search — BM25Encoder for sparse vectors (Experiment 6, HybridRetriever)
+pinecone-text

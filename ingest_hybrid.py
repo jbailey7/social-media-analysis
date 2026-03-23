@@ -1,0 +1,143 @@
+"""
+One-time ingestion script — populates the hybrid Pinecone index.
+
+Hybrid search combines dense vectors (OpenAI text-embedding-3-small) with
+sparse vectors (BM25) to capture both semantic similarity and keyword overlap.
+Pinecone requires 'dotproduct' as the metric for hybrid indexes.
+
+BM25 params are fitted on the full corpus and saved to bm25_params.json so
+the HybridRetriever can produce matching sparse query vectors at runtime
+without re-fitting.
+
+Usage:
+    python ingest_hybrid.py
+
+Requires OPENAI_API_KEY and PINECONE_API_KEY set in .env or the environment.
+Runtime: ~30–60 minutes depending on API throughput.
+"""
+
+import json
+import os
+import time
+from typing import List
+
+from dotenv import load_dotenv
+from openai import OpenAI
+from pinecone import Pinecone, ServerlessSpec
+from pinecone_text.sparse import BM25Encoder
+from tqdm import tqdm
+
+from rag.preprocessing import load_chunks
+from ingest import safe_metadata, embed_texts
+
+load_dotenv()
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
+INDEX_NAME    = os.getenv("PINECONE_HYBRID_INDEX_NAME", "exorde-hybrid")
+EMBED_MODEL   = "text-embedding-3-small"
+EMBED_DIM     = 1536
+CLOUD         = "aws"
+REGION        = "us-east-1"
+BATCH_SIZE    = 100
+BM25_PARAMS_PATH = "bm25_params.json"
+
+
+# ---------------------------------------------------------------------------
+# Pinecone index setup
+# ---------------------------------------------------------------------------
+
+def get_or_create_index(pc: Pinecone):
+    """Create a dotproduct index for hybrid search if it doesn't exist."""
+    existing = [idx["name"] for idx in pc.list_indexes()]
+
+    if INDEX_NAME not in existing:
+        print(f"Creating Pinecone index '{INDEX_NAME}' (dim={EMBED_DIM}, metric=dotproduct)...")
+        pc.create_index(
+            name=INDEX_NAME,
+            dimension=EMBED_DIM,
+            metric="dotproduct",
+            spec=ServerlessSpec(cloud=CLOUD, region=REGION),
+        )
+        while not pc.describe_index(INDEX_NAME).status["ready"]:
+            time.sleep(2)
+        print("Index created and ready.")
+    else:
+        print(f"Index '{INDEX_NAME}' already exists.")
+
+    return pc.Index(INDEX_NAME)
+
+
+# ---------------------------------------------------------------------------
+# BM25
+# ---------------------------------------------------------------------------
+
+def fit_and_save_bm25(texts: List[str]) -> BM25Encoder:
+    """Fit BM25 on the full corpus and save params for later query-time use."""
+    print("Fitting BM25 encoder on corpus...")
+    bm25 = BM25Encoder()
+    bm25.fit(texts)
+    bm25.dump(BM25_PARAMS_PATH)
+    print(f"BM25 params saved to {BM25_PARAMS_PATH}")
+    return bm25
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main():
+    openai_key   = os.getenv("OPENAI_API_KEY")
+    pinecone_key = os.getenv("PINECONE_API_KEY")
+
+    if not openai_key:
+        raise EnvironmentError("OPENAI_API_KEY is not set.")
+    if not pinecone_key:
+        raise EnvironmentError("PINECONE_API_KEY is not set.")
+
+    client = OpenAI(api_key=openai_key)
+    pc     = Pinecone(api_key=pinecone_key)
+
+    # Step 1: Load and preprocess
+    chunks = load_chunks()
+    texts  = [c["text"] for c in chunks]
+
+    # Step 2: Fit BM25 and save params
+    bm25 = fit_and_save_bm25(texts)
+
+    # Step 3: Create index
+    index = get_or_create_index(pc)
+    print("Index stats before upsert:", index.describe_index_stats())
+
+    # Step 4: Embed + encode sparse + upsert
+    # Vectors are stored unscaled — alpha blending happens at query time,
+    # which allows different alpha values to be tested without re-ingesting.
+    print(f"\nEmbedding and upserting {len(chunks):,} chunks in batches of {BATCH_SIZE}...")
+    for start in tqdm(range(0, len(chunks), BATCH_SIZE), desc="Upserting"):
+        batch = chunks[start:start + BATCH_SIZE]
+
+        ids         = [c["chunk_id"] for c in batch]
+        batch_texts = [c["text"] for c in batch]
+        metas       = [safe_metadata(c["metadata"]) for c in batch]
+
+        dense_vecs  = embed_texts(client, batch_texts)
+        sparse_vecs = bm25.encode_documents(batch_texts)
+
+        index.upsert(vectors=[
+            {
+                "id":             _id,
+                "values":         dense,
+                "sparse_values":  sparse,
+                "metadata":       meta,
+            }
+            for _id, dense, sparse, meta in zip(ids, dense_vecs, sparse_vecs, metas)
+        ])
+
+    print("\nIngestion complete.")
+    print("Index stats after upsert:", index.describe_index_stats())
+
+
+if __name__ == "__main__":
+    main()

@@ -49,6 +49,7 @@ social-media-analysis/
 ├── evaluate.py                 # Evaluation script (4 configs x 7 questions)
 ├── ingest.py                   # Populates Pinecone index using text-embedding-3-small
 ├── ingest_bge.py               # Populates Pinecone index using BAAI/bge-large-en-v1.5
+├── ingest_hybrid.py            # Populates hybrid Pinecone index (dense + BM25 sparse vectors)
 ├── ingest_theme_grouped.py     # Populates Pinecone index using theme-grouped chunking
 ├── generate_training_data.py   # Generates synthetic training data from Exorde using GPT-4o-mini
 ├── train.py                    # LoRA fine-tuning script for the answer model
@@ -59,7 +60,7 @@ social-media-analysis/
 │   └── graph.py                # LangGraph graph definition and compilation
 ├── rag/
 │   ├── preprocessing.py        # Shared Exorde dataset loading and cleaning
-│   └── retriever.py            # Pinecone client + chunk_lookup + retrieve function
+│   └── retriever.py            # PineconeRetriever (dense) + HybridRetriever (dense + BM25)
 ├── models/
 │   └── smollm.py               # SmolLM2-360M loader and generate function
 ├── notebooks/
@@ -136,6 +137,7 @@ RAG experiments notebook.
 |---|---|---|---|
 | `ingest.py` | `PINECONE_INDEX_NAME` | `text-embedding-3-small` | Primary index used by the app |
 | `ingest_bge.py` | `PINECONE_BGE_INDEX_NAME` | `BAAI/bge-large-en-v1.5` (local) | Experiment 4 — embedding model comparison |
+| `ingest_hybrid.py` | `PINECONE_HYBRID_INDEX_NAME` | `text-embedding-3-small` + BM25 | Experiment 6 — hybrid search (dotproduct metric) |
 | `ingest_theme_grouped.py` | `PINECONE_THEME_INDEX_NAME` | `text-embedding-3-small` | Experiment 5 — chunking strategy comparison |
 
 Run the primary index first:
@@ -179,8 +181,9 @@ a hypothesis, measures retrieval quality across 7 test questions, and records fi
 | 3 | Reranking | None, cross-encoder, LLM-based |
 | 4 | Embedding model | `text-embedding-3-small`, `BAAI/bge-large-en-v1.5` |
 | 5 | Chunking strategy | Individual posts, theme-grouped |
+| 6 | Hybrid search | Dense-only (α=1.0), 75/25 blend (α=0.75), equal blend (α=0.5) |
 
-Experiments 1–3 require only the primary Pinecone index. Experiments 4 and 5 require
+Experiments 1–3 require only the primary Pinecone index. Experiments 4, 5, and 6 require
 their respective indexes to be built first (see **Populating the Index** above).
 
 To run the notebook:
@@ -242,9 +245,10 @@ A GPU is recommended (~4 minutes on CUDA; significantly longer on CPU). No API k
 - [x] Re-fine-tune answer model on synthetic Exorde data (domain-matched)
 
 ### Upcoming
-- [ ] Add tests
-- [ ] Refactor global cache pattern in `agents/nodes.py`
-- [ ] Revisit HyDE routing — experiments show always-HyDE outperforms conditional HyDE; evaluate whether the router serves other purposes before removing
+- [ ] Run `python ingest_hybrid.py` on GPU to build `exorde-hybrid` index and fit BM25 params
+- [ ] Run Experiment 6 in the notebook; fill in findings and update `HybridRetriever` default alpha
+- [ ] If hybrid outperforms dense, switch `app.py` to use `HybridRetriever`
+- [ ] Revisit HyDE routing — experiments show always-HyDE outperforms conditional HyDE; consider simplifying pipeline to always apply HyDE without a router node
 
 ## Notes
 
