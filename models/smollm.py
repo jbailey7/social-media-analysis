@@ -1,9 +1,9 @@
 """
 Loads the LoRA fine-tuned SmolLM2-360M-Instruct.
 
-The model was fine-tuned on the SAMSum dialogue summarization dataset and serves
-as the answer generation agent, summarizing retrieved social media posts in
-response to a user question.
+The model is fine-tuned on synthetic (posts, question, answer) triples generated
+from the Exorde dataset, teaching it to answer natural language questions from
+retrieved social media posts — the same task it performs in the production pipeline.
 
 The fine-tuned LoRA adapter weights are included in this repository at:
   fine_tuned_model/
@@ -78,20 +78,19 @@ def load_base_model():
     return model, tokenizer
 
 
-def generate_summary(model, tokenizer, dialogue: str, max_new_tokens: int = 150) -> str:
+def generate_summary(model, tokenizer, context: str, max_new_tokens: int = 150) -> str:
     """
-    Generate a summary of the provided dialogue/context.
+    Generate an answer from the provided context.
 
-    Social media posts are formatted as a short dialogue to match the
-    SAMSum training distribution, producing coherent summarisation output.
+    The context is pre-formatted by answer_node as:
+      'Here are social media posts from December 2024:\\n\\nPost 1: ...\\n\\nQuestion: ...'
+
+    This matches the format used during fine-tuning, ensuring consistent output.
     """
     messages = [
         {
             "role": "user",
-            "content": (
-                "Summarize the following conversation in one or two sentences.\n\n"
-                f"Conversation:\n{dialogue}"
-            )
+            "content": context,
         }
     ]
     inputs = tokenizer.apply_chat_template(

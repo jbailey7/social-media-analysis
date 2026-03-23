@@ -230,18 +230,19 @@ using LoRA, and saves the adapter weights to `fine_tuned_model/`. A GPU is recom
 
 ## Roadmap
 
-### Immediate (GPU machine)
+### Completed
 - [x] Rebuild `exorde-week1` index (`python ingest.py`)
 - [x] Run `ingest_bge.py` on GPU to build `exorde-embed-bge`
 - [x] Run `ingest_theme_grouped.py` to build `exorde-chunked-theme`
-- [ ] Complete notebook experiments 4 and 5
-- [ ] Fill in findings and conclusions in the notebook
-- [ ] Update `rag/retriever.py` with the winning configuration from experiments
+- [x] Complete all 5 RAG experiments in the notebook
+- [x] Fill in findings and conclusions in the notebook
+- [x] Production defaults (k=10, individual posts, `text-embedding-3-small`) confirmed by experiments
 
 ### Upcoming
 - [ ] Address SAMSum fine-tuning mismatch in answer model
 - [ ] Add tests
 - [ ] Refactor global cache pattern in `agents/nodes.py`
+- [ ] Revisit HyDE routing — experiments show always-HyDE outperforms conditional HyDE; evaluate whether the router serves other purposes before removing
 
 ## Notes
 

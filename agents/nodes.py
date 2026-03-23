@@ -103,26 +103,24 @@ def _get_ft_model():
 
 def answer_node(state: AgentState) -> AgentState:
     """
-    Formats retrieved posts as a dialogue and passes to fine-tuned SmolLM2
-    to generate the final answer.
+    Formats retrieved posts and passes them to fine-tuned SmolLM2 to generate
+    the final answer.
 
-    Format mimics the SAMSum training distribution so the fine-tuned model performs well:
-      Post 1 [Theme]: <text>
-      Post 2 [Theme]: <text>
-      ...
-      Question: <question>
+    The format matches the training data produced by generate_training_data.py:
+      'Here are social media posts from December 2024:\\n\\nPost 1: ...\\n\\nQuestion: ...'
     """
     docs = state["retrieved_docs"]
-    lines = []
-    for i, doc in enumerate(docs[:7], start=1):
-        theme = doc.metadata.get("primary_theme", "General")
-        lines.append(f"Post {i} [{theme}]: {doc.page_content}")
-
-    lines.append(f"\nQuestion: {state['question']}")
-    dialogue = "\n".join(lines)
+    posts_text = "\n".join(
+        f"Post {i+1}: {doc.page_content}" for i, doc in enumerate(docs[:10])
+    )
+    context = (
+        "Here are social media posts from December 2024:\n\n"
+        f"{posts_text}\n\n"
+        f"Question: {state['question']}"
+    )
 
     model, tokenizer = _get_ft_model()
-    answer = generate_summary(model, tokenizer, dialogue, max_new_tokens=150)
+    answer = generate_summary(model, tokenizer, context, max_new_tokens=150)
     return {**state, "answer": answer}
 
 
