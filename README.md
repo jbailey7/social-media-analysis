@@ -231,9 +231,9 @@ using LoRA, and saves the adapter weights to `fine_tuned_model/`. A GPU is recom
 ## Roadmap
 
 ### Immediate (GPU machine)
-- [ ] Rebuild `exorde-week1` index (`python ingest.py`) — current index is corrupted
-- [ ] Run `ingest_bge.py` on GPU to build `exorde-embed-bge`
-- [ ] Run `ingest_theme_grouped.py` to build `exorde-chunked-theme`
+- [x] Rebuild `exorde-week1` index (`python ingest.py`)
+- [x] Run `ingest_bge.py` on GPU to build `exorde-embed-bge`
+- [x] Run `ingest_theme_grouped.py` to build `exorde-chunked-theme`
 - [ ] Complete notebook experiments 4 and 5
 - [ ] Fill in findings and conclusions in the notebook
 - [ ] Update `rag/retriever.py` with the winning configuration from experiments
