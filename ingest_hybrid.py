@@ -115,6 +115,7 @@ def main():
     # Vectors are stored unscaled — alpha blending happens at query time,
     # which allows different alpha values to be tested without re-ingesting.
     print(f"\nEmbedding and upserting {len(chunks):,} chunks in batches of {BATCH_SIZE}...")
+    total_skipped = 0
     for start in tqdm(range(0, len(chunks), BATCH_SIZE), desc="Upserting"):
         batch = chunks[start:start + BATCH_SIZE]
 
@@ -125,17 +126,29 @@ def main():
         dense_vecs  = embed_texts(client, batch_texts)
         sparse_vecs = bm25.encode_documents(batch_texts)
 
-        index.upsert(vectors=[
-            {
-                "id":             _id,
-                "values":         dense,
-                "sparse_values":  sparse,
-                "metadata":       meta,
-            }
-            for _id, dense, sparse, meta in zip(ids, dense_vecs, sparse_vecs, metas)
-        ])
+        # Skip any document whose sparse vector is empty (BM25 found no
+        # known tokens — happens with very short or heavily-punctuated posts).
+        vectors = []
+        skipped = 0
+        for _id, dense, sparse, meta in zip(ids, dense_vecs, sparse_vecs, metas):
+            if not sparse.get("indices"):
+                skipped += 1
+                continue
+            vectors.append({
+                "id":            _id,
+                "values":        dense,
+                "sparse_values": sparse,
+                "metadata":      meta,
+            })
 
-    print("\nIngestion complete.")
+        if skipped:
+            total_skipped += skipped
+            tqdm.write(f"  ⚠ Skipped {skipped} doc(s) with empty sparse vectors in this batch")
+
+        if vectors:
+            index.upsert(vectors=vectors)
+
+    print(f"\nIngestion complete. Skipped {total_skipped:,} docs with empty sparse vectors.")
     print("Index stats after upsert:", index.describe_index_stats())
 
 
