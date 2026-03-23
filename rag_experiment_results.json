@@ -6,79 +6,88 @@
     "avg_min":0.6438,
     "avg_std":0.0184,
     "avg_range":0.0581,
-    "avg_time_s":0.115
+    "avg_time_s":0.167
   },
   {
     "config":"top-k | k=5",
     "avg_score":0.5112,
     "avg_max":0.5465,
-    "avg_min":0.4828,
+    "avg_min":0.4829,
     "avg_std":0.0268,
     "avg_range":0.0637,
-    "avg_time_s":0.291
-  },
-  {
-    "config":"query | always_hyde",
-    "avg_score":0.5058,
-    "avg_max":0.5559,
-    "avg_min":0.4807,
-    "avg_std":0.0232,
-    "avg_range":0.0752,
-    "avg_time_s":1.686
+    "avg_time_s":0.495
   },
   {
     "config":"query | conditional_hyde",
-    "avg_score":0.5003,
-    "avg_max":0.54,
-    "avg_min":0.476,
-    "avg_std":0.023,
-    "avg_range":0.064,
-    "avg_time_s":2.129
+    "avg_score":0.5094,
+    "avg_max":0.5592,
+    "avg_min":0.4871,
+    "avg_std":0.0229,
+    "avg_range":0.072,
+    "avg_time_s":2.805
+  },
+  {
+    "config":"query | always_hyde",
+    "avg_score":0.504,
+    "avg_max":0.5495,
+    "avg_min":0.4792,
+    "avg_std":0.0223,
+    "avg_range":0.0703,
+    "avg_time_s":1.62
   },
   {
     "config":"query | multi_query",
-    "avg_score":0.4942,
+    "avg_score":0.4935,
     "avg_max":0.5466,
-    "avg_min":0.4705,
+    "avg_min":0.4702,
     "avg_std":0.0265,
-    "avg_range":0.0761,
-    "avg_time_s":3.196
+    "avg_range":0.0764,
+    "avg_time_s":2.458
   },
   {
-    "config":"top-k | k=10",
+    "config":"rerank | none",
     "avg_score":0.49,
     "avg_max":0.5466,
     "avg_min":0.4624,
     "avg_std":0.0291,
     "avg_range":0.0842,
-    "avg_time_s":0.301
+    "avg_time_s":0.265
   },
   {
     "config":"embed | 3-small",
     "avg_score":0.49,
     "avg_max":0.5466,
-    "avg_min":0.4623,
+    "avg_min":0.4624,
     "avg_std":0.0291,
     "avg_range":0.0842,
-    "avg_time_s":0.275
+    "avg_time_s":0.233
+  },
+  {
+    "config":"rerank | llm_rerank",
+    "avg_score":0.49,
+    "avg_max":0.5466,
+    "avg_min":0.4625,
+    "avg_std":0.0291,
+    "avg_range":0.0842,
+    "avg_time_s":15.487
   },
   {
     "config":"query | none",
     "avg_score":0.49,
-    "avg_max":0.5466,
+    "avg_max":0.5465,
     "avg_min":0.4624,
     "avg_std":0.0291,
-    "avg_range":0.0842,
-    "avg_time_s":0.219
+    "avg_range":0.0841,
+    "avg_time_s":0.297
   },
   {
-    "config":"rerank | none",
+    "config":"hybrid | alpha=1.0",
     "avg_score":0.49,
-    "avg_max":0.5465,
-    "avg_min":0.4623,
+    "avg_max":0.5466,
+    "avg_min":0.4625,
     "avg_std":0.0291,
     "avg_range":0.0841,
-    "avg_time_s":0.243
+    "avg_time_s":0.277
   },
   {
     "config":"chunk | individual",
@@ -86,35 +95,35 @@
     "avg_max":0.5465,
     "avg_min":0.4623,
     "avg_std":0.0291,
-    "avg_range":0.0841,
-    "avg_time_s":0.393
+    "avg_range":0.0842,
+    "avg_time_s":0.23
   },
   {
-    "config":"rerank | llm_rerank",
+    "config":"top-k | k=10",
     "avg_score":0.4899,
     "avg_max":0.5465,
     "avg_min":0.4623,
     "avg_std":0.0291,
     "avg_range":0.0842,
-    "avg_time_s":15.968
+    "avg_time_s":0.298
   },
   {
     "config":"rerank | cross_encoder",
-    "avg_score":0.4776,
-    "avg_max":0.5466,
-    "avg_min":0.4428,
+    "avg_score":0.4775,
+    "avg_max":0.5465,
+    "avg_min":0.4429,
     "avg_std":0.0348,
-    "avg_range":0.1038,
-    "avg_time_s":0.285
+    "avg_range":0.1036,
+    "avg_time_s":0.324
   },
   {
     "config":"top-k | k=20",
     "avg_score":0.4698,
-    "avg_max":0.5466,
+    "avg_max":0.5465,
     "avg_min":0.4399,
     "avg_std":0.0294,
-    "avg_range":0.1067,
-    "avg_time_s":0.246
+    "avg_range":0.1066,
+    "avg_time_s":0.257
   },
   {
     "config":"chunk | theme_grouped",
@@ -123,6 +132,24 @@
     "avg_min":0.4347,
     "avg_std":0.025,
     "avg_range":0.0778,
-    "avg_time_s":0.355
+    "avg_time_s":0.241
+  },
+  {
+    "config":"hybrid | alpha=0.75",
+    "avg_score":0.3938,
+    "avg_max":0.4475,
+    "avg_min":0.368,
+    "avg_std":0.0264,
+    "avg_range":0.0794,
+    "avg_time_s":0.256
+  },
+  {
+    "config":"hybrid | alpha=0.5",
+    "avg_score":0.3062,
+    "avg_max":0.3589,
+    "avg_min":0.2811,
+    "avg_std":0.0255,
+    "avg_range":0.0778,
+    "avg_time_s":0.242
   }
 ]
