@@ -69,14 +69,14 @@ Respond in JSON:
 def load_posts_by_theme() -> dict[str, list[str]]:
     """Load Exorde posts and group by primary_theme."""
     sys.path.insert(0, str(Path(__file__).parent))
-    from rag.preprocessing import load_and_clean_dataset
+    from rag.preprocessing import load_chunks
 
     print("Loading Exorde dataset...")
-    chunks = load_and_clean_dataset(max_samples=50_000)
+    chunks = load_chunks()
 
     by_theme: dict[str, list[str]] = defaultdict(list)
     for chunk in chunks:
-        theme = chunk.get("primary_theme", "")
+        theme = chunk.get("metadata", {}).get("primary_theme", "")
         if theme:
             by_theme[theme].append(chunk["text"])
 
