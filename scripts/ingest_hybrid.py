@@ -22,7 +22,7 @@ from pinecone_text.sparse import BM25Encoder
 from tqdm import tqdm
 
 from rag.preprocessing import load_chunks
-from ingest import safe_metadata, embed_texts
+from scripts.ingest import safe_metadata, embed_texts
 from config import EMBED_MODEL
 
 load_dotenv()

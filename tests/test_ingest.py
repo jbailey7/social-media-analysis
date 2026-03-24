@@ -1,12 +1,12 @@
 """
-Tests for safe_metadata() in ingest.py
+Tests for safe_metadata() in scripts/ingest.py
 
 safe_metadata() is a pure function that sanitises post metadata before
 upserting to Pinecone. No API calls are made in any of these tests.
 """
 
 import pytest
-from ingest import safe_metadata
+from scripts.ingest import safe_metadata
 
 
 # None and missing values
