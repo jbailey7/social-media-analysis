@@ -1,0 +1,31 @@
+streamlit
+langgraph
+langchain
+langchain-openai
+langchain-pinecone
+langchain-core
+pinecone
+openai
+# torch 2.2.2 is the max available on Intel Mac (x86_64); transformers 5.x requires torch>=2.4
+# Pin transformers<5 so it works on both Intel and Apple Silicon Macs
+transformers<5.0
+peft
+# For CUDA GPU support, install torch separately with:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+# The plain entry below installs a CPU-only build (default pip behaviour).
+torch
+numpy
+datasets
+python-dotenv
+Pillow
+typing-extensions
+# RAG experiments (notebooks/rag_experiments.ipynb)
+sentence-transformers
+rank_bm25
+pandas
+matplotlib
+jupyter
+# Hybrid search — BM25Encoder for sparse vectors (Experiment 6, HybridRetriever)
+pinecone-text
+# RAG evaluation
+ragas>=0.2
