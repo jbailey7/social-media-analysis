@@ -9,10 +9,14 @@ hypothetical document before retrieval outperforms conditional routing
 (see notebooks/rag_experiments.ipynb, Experiment 2).
 """
 
+import logging
+
 from langgraph.graph import StateGraph, START, END
 
 from agents.state import AgentState
 from agents.nodes import AgentNodes
+
+logger = logging.getLogger(__name__)
 
 
 def build_graph(nodes: AgentNodes):
@@ -45,6 +49,6 @@ def save_graph_image(graph, path: str = "graph.png"):
         )
         with open(path, "wb") as f:
             f.write(img_bytes)
-        print(f"Graph saved to {path}")
+        logger.info("Graph saved to %s", path)
     except Exception as e:
-        print(f"Could not save graph image: {e}")
+        logger.warning("Could not save graph image: %s", e)

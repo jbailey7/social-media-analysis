@@ -1,8 +1,8 @@
 """
 Evaluation script for the Social Media Intelligence Agent.
 
-Runs 7 test questions through 4 configurations and saves results to
-evaluation_results.json.
+Runs 7 test questions through 4 configurations, scores answer quality
+using RAGAS, and saves all results to evaluation_results.json.
 
 Configurations:
   A — Base LLM          — gpt-4o-mini with no retrieval
@@ -10,18 +10,29 @@ Configurations:
   C — Advanced RAG      — Full agentic pipeline with base SmolLM2-360M
   D — Advanced RAG (FT) — Full agentic pipeline with LoRA fine-tuned SmolLM2-360M
 
+RAGAS metrics (configs B, C, D only — config A has no retrieved context):
+  faithfulness                          — claims in the answer are grounded in the retrieved posts
+  answer_relevancy (ResponseRelevancy)  — answer actually addresses the question
+  context_precision                     — retrieved posts are relevant to the question
+
 Usage:
   python evaluate.py
 """
 
+import logging
 import os
 import json
+
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
+from config import CHAT_MODEL, EMBED_MODEL
+
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Test questions
@@ -42,7 +53,7 @@ QUESTIONS = [
 # ---------------------------------------------------------------------------
 
 llm = ChatOpenAI(
-    model="gpt-4o-mini",
+    model=CHAT_MODEL,
     temperature=0,
     openai_api_key=os.getenv("OPENAI_API_KEY"),
 )
@@ -64,7 +75,7 @@ def run_base_llm(question: str) -> str:
 # Config B: Basic RAG (retriever + gpt-4o-mini, no agents)
 # ---------------------------------------------------------------------------
 
-def run_basic_rag(question: str, retriever) -> str:
+def run_basic_rag(question: str, retriever) -> dict:
     docs = retriever.retrieve(question, k=10)
     context = "\n\n".join([
         f"Post [{doc.metadata.get('primary_theme', 'General')}]: {doc.page_content}"
@@ -79,7 +90,8 @@ def run_basic_rag(question: str, retriever) -> str:
         ("human", "{question}"),
     ])
     chain = prompt | llm | StrOutputParser()
-    return chain.invoke({"context": context, "question": question})
+    answer = chain.invoke({"context": context, "question": question})
+    return {"answer": answer, "docs": docs}
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +101,7 @@ def run_basic_rag(question: str, retriever) -> str:
 def run_advanced_rag(question: str, nodes) -> dict:
     """
     Runs HyDE → retrieve → SmolLM2 answer using the provided AgentNodes instance.
-    HyDE is always applied. Returns a dict with 'answer' and trace fields.
+    HyDE is always applied. Returns answer, retrieved docs, and trace fields.
     """
     state = {
         "question": question,
@@ -105,6 +117,81 @@ def run_advanced_rag(question: str, nodes) -> dict:
     return {
         "answer": state["answer"],
         "rewritten_query": state.get("rewritten_query", ""),
+        "docs": state["retrieved_docs"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# RAGAS scoring
+# ---------------------------------------------------------------------------
+
+def score_with_ragas(questions: list, answers: list, docs_list: list) -> list:
+    """
+    Scores a set of (question, answer, retrieved_docs) triples using RAGAS.
+
+    Returns a list of per-question score dicts, one per question. Metric keys
+    are whatever RAGAS returns (e.g. 'faithfulness', 'answer_relevancy',
+    'context_precision').
+    """
+    from ragas import evaluate, EvaluationDataset, SingleTurnSample
+    from ragas.metrics import Faithfulness, ResponseRelevancy, LLMContextPrecisionWithoutReference
+    from ragas.llms import llm_factory
+    from ragas.embeddings import LangchainEmbeddingsWrapper
+    from langchain_openai import OpenAIEmbeddings
+    from openai import OpenAI
+
+    api_key = os.getenv("OPENAI_API_KEY")
+
+    # Use llm_factory (ragas 0.2+ preferred API). max_tokens passed as kwarg
+    # so RAGAS doesn't truncate mid-response when scoring long answers.
+    evaluator_llm = llm_factory(
+        CHAT_MODEL,
+        client=OpenAI(api_key=api_key),
+        max_tokens=16000,
+    )
+
+    # Explicitly use text-embedding-3-small so RAGAS doesn't fall back to
+    # text-embedding-ada-002, which this project's API key doesn't have access to.
+    evaluator_embeddings = LangchainEmbeddingsWrapper(
+        OpenAIEmbeddings(model=EMBED_MODEL, openai_api_key=api_key)
+    )
+
+    samples = [
+        SingleTurnSample(
+            user_input=q,
+            response=a,
+            retrieved_contexts=[doc.page_content for doc in docs],
+        )
+        for q, a, docs in zip(questions, answers, docs_list)
+    ]
+    dataset = EvaluationDataset(samples=samples)
+    result = evaluate(
+        dataset=dataset,
+        metrics=[
+            Faithfulness(),
+            # strictness=1 requests only 1 generated question per answer instead
+            # of the default 3.  gpt-4o-mini returns 1 generation at a time, so
+            # the default causes "LLM returned 1 instead of 3" warnings and most
+            # scores collapse to 0.0.
+            ResponseRelevancy(strictness=1),
+            LLMContextPrecisionWithoutReference(),
+        ],
+        llm=evaluator_llm,
+        embeddings=evaluator_embeddings,
+    )
+    return [dict(s) for s in result.scores]
+
+
+def _avg_scores(scores: list) -> dict:
+    """Averages a list of per-question score dicts, skipping None values."""
+    if not scores:
+        return {}
+    keys = scores[0].keys()
+    return {
+        k: round(
+            sum(s[k] for s in scores if s.get(k) is not None) / len(scores), 4
+        )
+        for k in keys
     }
 
 
@@ -113,76 +200,150 @@ def run_advanced_rag(question: str, nodes) -> dict:
 # ---------------------------------------------------------------------------
 
 def main():
-    print("=" * 80)
-    print("Social Media Intelligence Agent — Evaluation")
-    print("=" * 80)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+        datefmt="%H:%M:%S",
+    )
 
-    # Initialise all resources once before the question loop
-    print("\nInitialising resources...")
+    logger.info("=" * 80)
+    logger.info("Social Media Intelligence Agent — Evaluation")
+    logger.info("=" * 80)
+
+    logger.info("Initialising resources...")
 
     from rag.retriever import PineconeRetriever
     from models.smollm import load_model, load_base_model
     from agents.nodes import AgentNodes
 
-    print("  Loading Pinecone retriever (may take ~2 min)...")
+    logger.info("Loading Pinecone retriever (may take ~2 min)...")
     retriever = PineconeRetriever()
 
-    print("  Loading base SmolLM2-360M (no LoRA)...")
+    logger.info("Loading base SmolLM2-360M (no LoRA)...")
     base_model, base_tokenizer = load_base_model()
 
-    print("  Loading fine-tuned SmolLM2-360M...")
+    logger.info("Loading fine-tuned SmolLM2-360M...")
     ft_model, ft_tokenizer = load_model()
 
     base_nodes = AgentNodes(retriever, base_model, base_tokenizer)
     ft_nodes   = AgentNodes(retriever, ft_model,   ft_tokenizer)
 
-    print("\nAll resources loaded. Starting evaluation.\n")
-    print("=" * 80)
+    logger.info("All resources loaded. Starting evaluation.")
+    logger.info("=" * 80)
 
     results = []
 
+    # Accumulators for RAGAS (configs B, C, D only)
+    ragas_inputs = {
+        "b": {"questions": [], "answers": [], "docs": []},
+        "c": {"questions": [], "answers": [], "docs": []},
+        "d": {"questions": [], "answers": [], "docs": []},
+    }
+
     for i, question in enumerate(QUESTIONS, 1):
-        print(f"\nQ{i}/{len(QUESTIONS)}: {question}")
-        print("-" * 80)
+        logger.info("Q%d/%d: %s", i, len(QUESTIONS), question)
+        logger.info("-" * 80)
 
         entry = {"question": question}
 
         # Config A
-        print("  Running A (Base LLM)...")
+        logger.info("Running A (Base LLM)...")
         entry["a_base_llm"] = run_base_llm(question)
 
         # Config B
-        print("  Running B (Basic RAG)...")
-        entry["b_basic_rag"] = run_basic_rag(question, retriever)
+        logger.info("Running B (Basic RAG)...")
+        b = run_basic_rag(question, retriever)
+        entry["b_basic_rag"] = b["answer"]
+        ragas_inputs["b"]["questions"].append(question)
+        ragas_inputs["b"]["answers"].append(b["answer"])
+        ragas_inputs["b"]["docs"].append(b["docs"])
 
         # Config C
-        print("  Running C (Advanced RAG, base SmolLM2)...")
+        logger.info("Running C (Advanced RAG, base SmolLM2)...")
         c = run_advanced_rag(question, base_nodes)
         entry["c_advanced_base"] = c["answer"]
         entry["c_hyde_query"] = c["rewritten_query"]
+        ragas_inputs["c"]["questions"].append(question)
+        ragas_inputs["c"]["answers"].append(c["answer"])
+        ragas_inputs["c"]["docs"].append(c["docs"])
 
         # Config D
-        print("  Running D (Advanced RAG, fine-tuned SmolLM2)...")
+        logger.info("Running D (Advanced RAG, fine-tuned SmolLM2)...")
         d = run_advanced_rag(question, ft_nodes)
         entry["d_advanced_finetuned"] = d["answer"]
         entry["d_hyde_query"] = d["rewritten_query"]
+        ragas_inputs["d"]["questions"].append(question)
+        ragas_inputs["d"]["answers"].append(d["answer"])
+        ragas_inputs["d"]["docs"].append(d["docs"])
 
         results.append(entry)
 
-        # Quick preview
-        print(f"\n  A: {entry['a_base_llm'][:120]}...")
-        print(f"  B: {entry['b_basic_rag'][:120]}...")
-        print(f"  C: {entry['c_advanced_base'][:120]}...")
-        print(f"  D: {entry['d_advanced_finetuned'][:120]}...")
+        logger.info("A: %s...", entry['a_base_llm'][:120])
+        logger.info("B: %s...", entry['b_basic_rag'][:120])
+        logger.info("C: %s...", entry['c_advanced_base'][:120])
+        logger.info("D: %s...", entry['d_advanced_finetuned'][:120])
 
+    # ---------------------------------------------------------------------------
+    # RAGAS scoring
+    # ---------------------------------------------------------------------------
+
+    logger.info("=" * 80)
+    logger.info("Running RAGAS evaluation (B, C, D)...")
+    logger.info("Config A is excluded — no retrieved context to evaluate.")
+    logger.info("=" * 80)
+
+    config_labels = {
+        "b": "B — Basic RAG",
+        "c": "C — Advanced RAG (base)",
+        "d": "D — Advanced RAG (fine-tuned)",
+    }
+
+    ragas_summary = {}
+    for key, label in config_labels.items():
+        logger.info("Scoring %s...", label)
+        scores = score_with_ragas(
+            ragas_inputs[key]["questions"],
+            ragas_inputs[key]["answers"],
+            ragas_inputs[key]["docs"],
+        )
+        ragas_summary[key] = _avg_scores(scores)
+        for i, score in enumerate(scores):
+            results[i][f"{key}_ragas"] = score
+
+    # ---------------------------------------------------------------------------
+    # Print summary table
+    # ---------------------------------------------------------------------------
+
+    logger.info("=" * 80)
+    logger.info("RAGAS Summary (averages across all questions)")
+    logger.info("=" * 80)
+
+    metric_names = list(ragas_summary["b"].keys())
+    col_w = 24
+    header = f"{'Config':<34}" + "".join(f"{m:<{col_w}}" for m in metric_names)
+    logger.info(header)
+    logger.info("-" * len(header))
+    for key, label in config_labels.items():
+        row = f"{label:<34}" + "".join(
+            f"{ragas_summary[key].get(m, 'N/A'):<{col_w}}" for m in metric_names
+        )
+        logger.info(row)
+
+    # ---------------------------------------------------------------------------
     # Save results
+    # ---------------------------------------------------------------------------
+
+    output = {
+        "per_question": results,
+        "ragas_summary": ragas_summary,
+    }
     out_path = "evaluation_results.json"
     with open(out_path, "w") as f:
-        json.dump(results, f, indent=2)
+        json.dump(output, f, indent=2)
 
-    print(f"\n{'=' * 80}")
-    print(f"Done. Results saved to {out_path}")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("Done. Results saved to %s", out_path)
+    logger.info("=" * 80)
 
 
 if __name__ == "__main__":

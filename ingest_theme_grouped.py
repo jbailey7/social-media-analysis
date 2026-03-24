@@ -17,6 +17,7 @@ Requires OPENAI_API_KEY and PINECONE_API_KEY set in .env or the environment.
 Runtime: ~30–60 minutes depending on API throughput.
 """
 
+import logging
 import os
 import time
 from collections import defaultdict
@@ -28,15 +29,17 @@ from pinecone import Pinecone, ServerlessSpec
 from tqdm import tqdm
 
 from rag.preprocessing import load_chunks
+from config import EMBED_MODEL
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
 INDEX_NAME  = os.getenv("PINECONE_THEME_INDEX_NAME", "exorde-chunked-theme")
-EMBED_MODEL = "text-embedding-3-small"
 EMBED_DIM   = 1536
 CLOUD       = "aws"
 REGION      = "us-east-1"
@@ -76,8 +79,8 @@ def build_theme_chunks(chunks: list, group_size: int = GROUP_SIZE) -> list:
                 },
             })
 
-    print(f"Built {len(theme_chunks):,} theme-grouped chunks from {len(chunks):,} posts")
-    print(f"({len(by_theme)} unique themes, group_size={group_size})")
+    logger.info("Built %s theme-grouped chunks from %s posts (%d unique themes, group_size=%d)",
+                f"{len(theme_chunks):,}", f"{len(chunks):,}", len(by_theme), group_size)
     return theme_chunks
 
 
@@ -90,7 +93,7 @@ def get_or_create_index(pc: Pinecone):
     existing = [idx["name"] for idx in pc.list_indexes()]
 
     if INDEX_NAME not in existing:
-        print(f"Creating Pinecone index '{INDEX_NAME}' (dim={EMBED_DIM}, metric=cosine)...")
+        logger.info("Creating Pinecone index '%s' (dim=%d, metric=cosine)...", INDEX_NAME, EMBED_DIM)
         pc.create_index(
             name=INDEX_NAME,
             dimension=EMBED_DIM,
@@ -99,9 +102,9 @@ def get_or_create_index(pc: Pinecone):
         )
         while not pc.describe_index(INDEX_NAME).status["ready"]:
             time.sleep(2)
-        print("Index created and ready.")
+        logger.info("Index created and ready.")
     else:
-        print(f"Index '{INDEX_NAME}' already exists.")
+        logger.info("Index '%s' already exists.", INDEX_NAME)
 
     return pc.Index(INDEX_NAME)
 
@@ -118,7 +121,7 @@ def embed_texts(client: OpenAI, texts: List[str], max_retries: int = 6) -> List[
             return [d.embedding for d in resp.data]
         except Exception as e:
             wait = min(2 ** attempt, 30)
-            print(f"[warn] Embedding failed (attempt {attempt + 1}/{max_retries}): {e}")
+            logger.warning("Embedding failed (attempt %d/%d): %s", attempt + 1, max_retries, e)
             time.sleep(wait)
     raise RuntimeError("Embedding failed after max retries.")
 
@@ -145,6 +148,12 @@ def safe_metadata(meta: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
     openai_key   = os.getenv("OPENAI_API_KEY")
     pinecone_key = os.getenv("PINECONE_API_KEY")
 
@@ -164,10 +173,10 @@ def main():
 
     # Step 3: Create index
     index = get_or_create_index(pc)
-    print("Index stats before upsert:", index.describe_index_stats())
+    logger.info("Index stats before upsert: %s", index.describe_index_stats())
 
     # Step 4: Embed and upsert
-    print(f"\nEmbedding and upserting {len(theme_chunks):,} chunks in batches of {BATCH_SIZE}...")
+    logger.info("Embedding and upserting %s chunks in batches of %d...", f"{len(theme_chunks):,}", BATCH_SIZE)
     for start in tqdm(range(0, len(theme_chunks), BATCH_SIZE), desc="Upserting"):
         batch = theme_chunks[start:start + BATCH_SIZE]
 
@@ -181,8 +190,8 @@ def main():
             for _id, vec, meta in zip(ids, vectors, metas)
         ])
 
-    print("\nIngestion complete.")
-    print("Index stats after upsert:", index.describe_index_stats())
+    logger.info("Ingestion complete.")
+    logger.info("Index stats after upsert: %s", index.describe_index_stats())
 
 
 if __name__ == "__main__":

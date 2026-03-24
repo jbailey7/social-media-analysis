@@ -9,13 +9,18 @@ The fine-tuned LoRA adapter weights are included in this repository at:
   fine_tuned_model/
 """
 
+import logging
 import os
 import torch
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
 
-MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
+from config import SMOLLM_MODEL_ID
+
+logger = logging.getLogger(__name__)
+
+MODEL_ID = SMOLLM_MODEL_ID
 
 # LoRA adapter weights are stored in this repository
 FINE_TUNED_PATH = str(Path(__file__).resolve().parents[1] / "fine_tuned_model")
@@ -34,7 +39,7 @@ def load_model():
             "Ensure the fine_tuned_model/ directory is present in this repository."
         )
 
-    print(f"Loading SmolLM2-360M base from {MODEL_ID}...")
+    logger.info("Loading SmolLM2-360M base from %s...", MODEL_ID)
     tokenizer = AutoTokenizer.from_pretrained(FINE_TUNED_PATH)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -47,10 +52,10 @@ def load_model():
     if DEVICE == "cpu":
         base_model = base_model.to(DEVICE)
 
-    print(f"Applying LoRA adapter from {FINE_TUNED_PATH}...")
+    logger.info("Applying LoRA adapter from %s...", FINE_TUNED_PATH)
     model = PeftModel.from_pretrained(base_model, FINE_TUNED_PATH)
     model.eval()
-    print("SmolLM2-360M (fine-tuned) ready.")
+    logger.info("SmolLM2-360M (fine-tuned) ready.")
     return model, tokenizer
 
 
@@ -60,7 +65,7 @@ def load_base_model():
     Used for evaluation config C (advanced agentic RAG without fine-tuning).
     Returns (model, tokenizer).
     """
-    print(f"Loading SmolLM2-360M base (no LoRA) from {MODEL_ID}...")
+    logger.info("Loading SmolLM2-360M base (no LoRA) from %s...", MODEL_ID)
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -74,7 +79,7 @@ def load_base_model():
         model = model.to(DEVICE)
 
     model.eval()
-    print("SmolLM2-360M (base, no fine-tuning) ready.")
+    logger.info("SmolLM2-360M (base, no fine-tuning) ready.")
     return model, tokenizer
 
 

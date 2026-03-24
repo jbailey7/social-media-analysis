@@ -7,9 +7,12 @@ making them stable across both steps.
 """
 
 import hashlib
+import logging
 import re
 
 from datasets import load_dataset
+
+logger = logging.getLogger(__name__)
 
 DATASET_NAME = "Exorde/exorde-social-media-december-2024-week1"
 N_SAMPLES    = 50_000
@@ -42,7 +45,7 @@ def load_chunks(verbose: bool = True) -> list:
     ingestion and retrieval.
     """
     if verbose:
-        print("Loading Exorde dataset from HuggingFace...")
+        logger.info("Loading Exorde dataset from HuggingFace...")
 
     dataset = load_dataset(DATASET_NAME, split="train")
 
@@ -83,6 +86,6 @@ def load_chunks(verbose: bool = True) -> list:
         })
 
     if verbose:
-        print(f"Loaded {len(chunks):,} chunks.")
+        logger.info("Loaded %s chunks.", f"{len(chunks):,}")
 
     return chunks

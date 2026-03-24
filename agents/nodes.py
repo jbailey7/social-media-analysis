@@ -24,6 +24,7 @@ from agents.state import AgentState
 from agents.prompts import HYDE_PROMPT
 from models.smollm import generate_summary
 from rag.retriever import PineconeRetriever
+from config import CHAT_MODEL
 
 
 class AgentNodes:
@@ -41,7 +42,7 @@ class AgentNodes:
         self.model = model
         self.tokenizer = tokenizer
         self.llm = ChatOpenAI(
-            model="gpt-4o-mini",
+            model=CHAT_MODEL,
             temperature=0,
             openai_api_key=os.getenv("OPENAI_API_KEY"),
         )

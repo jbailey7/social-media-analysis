@@ -17,6 +17,7 @@ Runtime: ~30–60 minutes depending on API throughput.
 """
 
 import json
+import logging
 import os
 import time
 from typing import List
@@ -29,15 +30,17 @@ from tqdm import tqdm
 
 from rag.preprocessing import load_chunks
 from ingest import safe_metadata, embed_texts
+from config import EMBED_MODEL
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
 INDEX_NAME    = os.getenv("PINECONE_HYBRID_INDEX_NAME", "exorde-hybrid")
-EMBED_MODEL   = "text-embedding-3-small"
 EMBED_DIM     = 1536
 CLOUD         = "aws"
 REGION        = "us-east-1"
@@ -54,7 +57,7 @@ def get_or_create_index(pc: Pinecone):
     existing = [idx["name"] for idx in pc.list_indexes()]
 
     if INDEX_NAME not in existing:
-        print(f"Creating Pinecone index '{INDEX_NAME}' (dim={EMBED_DIM}, metric=dotproduct)...")
+        logger.info("Creating Pinecone index '%s' (dim=%d, metric=dotproduct)...", INDEX_NAME, EMBED_DIM)
         pc.create_index(
             name=INDEX_NAME,
             dimension=EMBED_DIM,
@@ -63,9 +66,9 @@ def get_or_create_index(pc: Pinecone):
         )
         while not pc.describe_index(INDEX_NAME).status["ready"]:
             time.sleep(2)
-        print("Index created and ready.")
+        logger.info("Index created and ready.")
     else:
-        print(f"Index '{INDEX_NAME}' already exists.")
+        logger.info("Index '%s' already exists.", INDEX_NAME)
 
     return pc.Index(INDEX_NAME)
 
@@ -76,11 +79,11 @@ def get_or_create_index(pc: Pinecone):
 
 def fit_and_save_bm25(texts: List[str]) -> BM25Encoder:
     """Fit BM25 on the full corpus and save params for later query-time use."""
-    print("Fitting BM25 encoder on corpus...")
+    logger.info("Fitting BM25 encoder on corpus...")
     bm25 = BM25Encoder()
     bm25.fit(texts)
     bm25.dump(BM25_PARAMS_PATH)
-    print(f"BM25 params saved to {BM25_PARAMS_PATH}")
+    logger.info("BM25 params saved to %s", BM25_PARAMS_PATH)
     return bm25
 
 
@@ -89,6 +92,12 @@ def fit_and_save_bm25(texts: List[str]) -> BM25Encoder:
 # ---------------------------------------------------------------------------
 
 def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
     openai_key   = os.getenv("OPENAI_API_KEY")
     pinecone_key = os.getenv("PINECONE_API_KEY")
 
@@ -109,12 +118,12 @@ def main():
 
     # Step 3: Create index
     index = get_or_create_index(pc)
-    print("Index stats before upsert:", index.describe_index_stats())
+    logger.info("Index stats before upsert: %s", index.describe_index_stats())
 
     # Step 4: Embed + encode sparse + upsert
     # Vectors are stored unscaled — alpha blending happens at query time,
     # which allows different alpha values to be tested without re-ingesting.
-    print(f"\nEmbedding and upserting {len(chunks):,} chunks in batches of {BATCH_SIZE}...")
+    logger.info("Embedding and upserting %s chunks in batches of %d...", f"{len(chunks):,}", BATCH_SIZE)
     total_skipped = 0
     for start in tqdm(range(0, len(chunks), BATCH_SIZE), desc="Upserting"):
         batch = chunks[start:start + BATCH_SIZE]
@@ -148,8 +157,8 @@ def main():
         if vectors:
             index.upsert(vectors=vectors)
 
-    print(f"\nIngestion complete. Skipped {total_skipped:,} docs with empty sparse vectors.")
-    print("Index stats after upsert:", index.describe_index_stats())
+    logger.info("Ingestion complete. Skipped %s docs with empty sparse vectors.", f"{total_skipped:,}")
+    logger.info("Index stats after upsert: %s", index.describe_index_stats())
 
 
 if __name__ == "__main__":

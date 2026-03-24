@@ -27,3 +27,5 @@ matplotlib
 jupyter
 # Hybrid search — BM25Encoder for sparse vectors (Experiment 6, HybridRetriever)
 pinecone-text
+# RAG evaluation
+ragas>=0.2

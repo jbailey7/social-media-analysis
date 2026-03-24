@@ -22,8 +22,11 @@ Output:
 """
 
 import json
+import logging
 import random
 from pathlib import Path
+
+from config import SMOLLM_MODEL_ID
 
 import torch
 from datasets import Dataset
@@ -39,11 +42,18 @@ from transformers import (
 # Config
 # ---------------------------------------------------------------------------
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger(__name__)
+
 random.seed(42)
 torch.manual_seed(42)
 
 DEVICE           = "cuda" if torch.cuda.is_available() else "cpu"
-MODEL_ID         = "HuggingFaceTB/SmolLM2-360M-Instruct"
+MODEL_ID         = SMOLLM_MODEL_ID
 SAVE_PATH        = "./fine_tuned_model"
 TRAINING_DATA    = Path("training_data.jsonl")
 MAX_LENGTH       = 512
@@ -57,16 +67,16 @@ if not TRAINING_DATA.exists():
         f"{TRAINING_DATA} not found. Run generate_training_data.py first."
     )
 
-print(f"Loading training data from {TRAINING_DATA}...")
+logger.info("Loading training data from %s...", TRAINING_DATA)
 raw = [json.loads(line) for line in TRAINING_DATA.read_text().splitlines() if line.strip()]
 dataset = Dataset.from_list(raw)
-print(f"Loaded {len(dataset)} training examples.")
+logger.info("Loaded %d training examples.", len(dataset))
 
 # ---------------------------------------------------------------------------
 # Model and tokenizer
 # ---------------------------------------------------------------------------
 
-print(f"Loading base model from {MODEL_ID}...")
+logger.info("Loading base model from %s...", MODEL_ID)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
@@ -137,7 +147,7 @@ def tokenize(example):
     return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
 
 
-print("Tokenizing training data...")
+logger.info("Tokenizing training data...")
 tokenized = dataset.map(tokenize, remove_columns=dataset.column_names)
 tokenized.set_format("torch")
 
@@ -179,14 +189,14 @@ trainer = Trainer(
     train_dataset=tokenized,
 )
 
-print(f"\nTraining on {DEVICE}...")
+logger.info("Training on %s...", DEVICE)
 trainer.train()
 
 # ---------------------------------------------------------------------------
 # Save
 # ---------------------------------------------------------------------------
 
-print(f"\nSaving adapter weights to {SAVE_PATH}...")
+logger.info("Saving adapter weights to %s...", SAVE_PATH)
 model.save_pretrained(SAVE_PATH)
 tokenizer.save_pretrained(SAVE_PATH)
-print("Done. Run the app with: streamlit run app.py")
+logger.info("Done. Run the app with: streamlit run app.py")

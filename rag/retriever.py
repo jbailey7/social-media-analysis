@@ -21,10 +21,9 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
 
 from rag.preprocessing import load_chunks
+from config import EMBED_MODEL
 
 load_dotenv()
-
-EMBED_MODEL = "text-embedding-3-small"
 INDEX_NAME  = os.getenv("PINECONE_INDEX_NAME", "exorde-week1")
 
 

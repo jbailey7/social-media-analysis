@@ -8,11 +8,14 @@ Runs the multi-agent LangGraph pipeline on user queries and displays:
   - LangGraph visualization in the sidebar
 """
 
+import logging
 import os
 from pathlib import Path
 
 import streamlit as st
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -48,7 +51,16 @@ def load_everything():
     return graph
 
 
-graph = load_everything()
+try:
+    graph = load_everything()
+except Exception as e:
+    logger.exception("Failed to initialise agent resources.")
+    st.error(
+        f"**Failed to load the agent.** {e}\n\n"
+        "Check that `OPENAI_API_KEY` and `PINECONE_API_KEY` are set in your `.env` file "
+        "and that the `fine_tuned_model/` directory is present."
+    )
+    st.stop()
 
 
 # --- Sidebar: graph visualization and info ---
@@ -81,34 +93,40 @@ with st.form("query_form"):
     submitted = st.form_submit_button("Run Agent", type="primary")
 
 if submitted and question.strip():
+    result = None
     with st.spinner("Running multi-agent pipeline..."):
-        initial_state = {
-            "question": question.strip(),
-            "rewritten_query": "",
-            "retrieved_docs": [],
-            "answer": "",
-        }
-        result = graph.invoke(initial_state)
+        try:
+            initial_state = {
+                "question": question.strip(),
+                "rewritten_query": "",
+                "retrieved_docs": [],
+                "answer": "",
+            }
+            result = graph.invoke(initial_state)
+        except Exception as e:
+            logger.exception("Pipeline failed for question: %s", question.strip())
+            st.error(f"**The agent encountered an error.** {e}")
 
-    # --- Answer ---
-    st.subheader("Answer")
-    st.write(result["answer"])
+    if result is not None:
+        # --- Answer ---
+        st.subheader("Answer")
+        st.write(result["answer"])
 
-    # --- Agent trace ---
-    with st.expander("Agent trace", expanded=False):
-        st.markdown("**HyDE rewritten query:**")
-        st.info(result["rewritten_query"])
+        # --- Agent trace ---
+        with st.expander("Agent trace", expanded=False):
+            st.markdown("**HyDE rewritten query:**")
+            st.info(result["rewritten_query"])
 
-    # --- Retrieved posts ---
-    with st.expander(f"Retrieved posts ({len(result['retrieved_docs'])} found)", expanded=False):
-        for i, doc in enumerate(result["retrieved_docs"], start=1):
-            meta = doc.metadata
-            theme = meta.get("primary_theme", "N/A")
-            score = meta.get("score", "N/A")
-            timestamp = meta.get("timestamp", "N/A")
-            st.markdown(f"**Post {i}** · Theme: `{theme}` · Score: `{score}` · Date: `{timestamp}`")
-            st.text(doc.page_content)
-            st.divider()
+        # --- Retrieved posts ---
+        with st.expander(f"Retrieved posts ({len(result['retrieved_docs'])} found)", expanded=False):
+            for i, doc in enumerate(result["retrieved_docs"], start=1):
+                meta = doc.metadata
+                theme = meta.get("primary_theme", "N/A")
+                score = meta.get("score", "N/A")
+                timestamp = meta.get("timestamp", "N/A")
+                st.markdown(f"**Post {i}** · Theme: `{theme}` · Score: `{score}` · Date: `{timestamp}`")
+                st.text(doc.page_content)
+                st.divider()
 
 elif submitted and not question.strip():
     st.warning("Please enter a question.")

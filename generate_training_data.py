@@ -16,6 +16,7 @@ Cost estimate: ~1000 examples at gpt-4o-mini pricing ≈ $0.50–$1.00
 """
 
 import json
+import logging
 import os
 import random
 import sys
@@ -26,7 +27,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from config import CHAT_MODEL
+
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Config
@@ -71,7 +76,7 @@ def load_posts_by_theme() -> dict[str, list[str]]:
     sys.path.insert(0, str(Path(__file__).parent))
     from rag.preprocessing import load_chunks
 
-    print("Loading Exorde dataset...")
+    logger.info("Loading Exorde dataset...")
     chunks = load_chunks()
 
     by_theme: dict[str, list[str]] = defaultdict(list)
@@ -82,7 +87,7 @@ def load_posts_by_theme() -> dict[str, list[str]]:
 
     # Keep only themes with enough posts to sample from
     by_theme = {t: posts for t, posts in by_theme.items() if len(posts) >= POSTS_PER_EX}
-    print(f"Found {len(by_theme)} themes with ≥{POSTS_PER_EX} posts.")
+    logger.info("Found %d themes with ≥%d posts.", len(by_theme), POSTS_PER_EX)
     return by_theme
 
 # ---------------------------------------------------------------------------
@@ -94,7 +99,7 @@ def generate_example(posts: list[str], client: OpenAI) -> dict | None:
     posts_text = "\n".join(f"Post {i+1}: {p}" for i, p in enumerate(posts))
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=CHAT_MODEL,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user",   "content": f"Posts:\n{posts_text}"},
@@ -110,7 +115,7 @@ def generate_example(posts: list[str], client: OpenAI) -> dict | None:
                 "answer":   result["answer"].strip(),
             }
     except Exception as e:
-        print(f"  Warning: generation failed — {e}")
+        logger.warning("Generation failed: %s", e)
     return None
 
 # ---------------------------------------------------------------------------
@@ -118,6 +123,12 @@ def generate_example(posts: list[str], client: OpenAI) -> dict | None:
 # ---------------------------------------------------------------------------
 
 def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
     client   = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     by_theme = load_posts_by_theme()
     themes   = list(by_theme.keys())
@@ -125,7 +136,7 @@ def main():
     examples = []
     failed   = 0
 
-    print(f"Generating {N_EXAMPLES} training examples...")
+    logger.info("Generating %d training examples...", N_EXAMPLES)
     for i in range(N_EXAMPLES):
         theme = random.choice(themes)
         posts = random.sample(by_theme[theme], POSTS_PER_EX)
@@ -136,14 +147,14 @@ def main():
             failed += 1
 
         if (i + 1) % 100 == 0:
-            print(f"  {i + 1}/{N_EXAMPLES} — {len(examples)} saved, {failed} failed")
+            logger.info("%d/%d — %d saved, %d failed", i + 1, N_EXAMPLES, len(examples), failed)
 
         time.sleep(RATE_LIMIT_S)
 
     OUTPUT_PATH.write_text("\n".join(json.dumps(ex) for ex in examples))
-    print(f"\nDone. {len(examples)} examples saved to {OUTPUT_PATH}")
+    logger.info("Done. %d examples saved to %s", len(examples), OUTPUT_PATH)
     if failed:
-        print(f"Failed: {failed}")
+        logger.warning("%d examples failed to generate.", failed)
 
 
 if __name__ == "__main__":

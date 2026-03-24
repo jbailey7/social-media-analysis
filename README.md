@@ -1,28 +1,24 @@
 # Social Media Intelligence Agent
 
-A multi-agent RAG system built with LangGraph that answers natural language questions
+A RAG pipeline built with LangGraph that answers natural language questions
 about social media discussions from December 2024. The system combines semantic vector
-search, LLM-driven query routing, HyDE query rewriting, and a LoRA fine-tuned language
-model into a single agentic pipeline.
+search, HyDE query rewriting, and a LoRA fine-tuned language model into a single
+deterministic pipeline.
 
 ## System Overview
 
-### Agent Pipeline
+### Pipeline
 
-Queries are processed by a four-node LangGraph graph:
+Every query passes through the same three nodes in sequence:
 
 | Node | Model | Role |
 |---|---|---|
-| `router_node` | gpt-4o-mini | Decides whether HyDE query rewriting should be used |
 | `hyde_node` | gpt-4o-mini | Rewrites the question as a hypothetical social media post |
 | `retrieve_node` | Pinecone | Retrieves top-10 relevant posts from the vector index |
 | `answer_node` | SmolLM2-360M (LoRA fine-tuned) | Summarizes retrieved posts into a final answer |
 
-The router uses no hard-coded logic — gpt-4o-mini decides whether HyDE is beneficial
-for each query and routes accordingly. Sentiment and opinion questions are typically
-routed through HyDE; specific factual or named-entity queries go directly to retrieval.
-
-![Agent graph](graph.png)
+HyDE is applied unconditionally. Experiments showed that always rewriting the query
+outperforms conditional routing — see [Design Decisions](#design-decisions) for details.
 
 ### Vector Index
 
@@ -55,8 +51,8 @@ social-media-analysis/
 ├── train.py                    # LoRA fine-tuning script for the answer model
 ├── agents/
 │   ├── state.py                # AgentState TypedDict
-│   ├── prompts.py              # Router and HyDE prompt templates
-│   ├── nodes.py                # Node functions (router, hyde, retrieve, answer)
+│   ├── prompts.py              # HyDE prompt template
+│   ├── nodes.py                # Node functions (hyde, retrieve, answer)
 │   └── graph.py                # LangGraph graph definition and compilation
 ├── rag/
 │   ├── preprocessing.py        # Shared Exorde dataset loading and cleaning
@@ -66,6 +62,7 @@ social-media-analysis/
 ├── notebooks/
 │   └── rag_experiments.ipynb   # RAG configuration experiments and comparisons
 ├── fine_tuned_model/           # LoRA adapter weights (~2 MB, committed)
+├── config.py                   # Central model name configuration
 ├── requirements.txt
 └── .env.example
 ```
@@ -211,7 +208,54 @@ system component:
 | **C — Advanced RAG (base)** | Full agentic pipeline with untuned SmolLM2-360M |
 | **D — Advanced RAG (fine-tuned)** | Full agentic pipeline with LoRA fine-tuned SmolLM2-360M |
 
-Results are saved to `evaluation_results.json`.
+Configs B, C, and D are scored using three reference-free [RAGAS](https://docs.ragas.io) metrics:
+
+| Metric | What it measures |
+|---|---|
+| **Faithfulness** | Are the claims in the answer grounded in the retrieved posts? |
+| **Answer Relevancy** | Does the answer actually address the question? |
+| **Context Precision** | Are the retrieved posts relevant to the question? |
+
+Config A is excluded from RAGAS scoring — it has no retrieved context to evaluate against.
+Per-question scores and per-config averages are saved to `evaluation_results.json`.
+
+## Evaluation Results
+
+Configs B, C, and D were scored across 7 questions using three reference-free RAGAS metrics.
+Full per-question scores are in `evaluation_results.json`.
+
+| Config | Faithfulness | Answer Relevancy | Context Precision |
+|---|:-:|:-:|:-:|
+| **B — Basic RAG** (GPT-4o-mini) | **0.787** | 0.385 | **0.601** |
+| **C — Advanced RAG (base SmolLM2)** | 0.594 | 0.417 | 0.561 |
+| **D — Advanced RAG (fine-tuned SmolLM2)** | 0.691 | **0.514** | 0.383 |
+
+### Interpretation
+
+**Config B is the strongest overall.** GPT-4o-mini produces answers that stay most faithfully
+grounded in the retrieved posts (0.787) and retrieves the most precisely ranked context (0.601).
+This is expected — GPT-4o-mini is a significantly larger and more capable model than SmolLM2-360M.
+
+**Fine-tuning meaningfully improves SmolLM2 (C → D).** Config D outperforms Config C on all
+three metrics. The base model (Config C) frequently hallucinates or repeats retrieved text
+verbatim rather than synthesising it, reflected in its low faithfulness score. Fine-tuning on
+domain-matched synthetic data reduces this behaviour.
+
+**Fine-tuning does not close the gap with GPT-4o-mini.** Config D's faithfulness (0.691) and
+context precision (0.383) remain below Config B. This is an honest and expected result —
+SmolLM2-360M has roughly 1,000× fewer parameters. The practical trade-off is that Config D's
+answer generation runs locally with no per-query API cost, while Config B requires an OpenAI
+API call to produce each answer. Note that HyDE query rewriting calls GPT-4o-mini in both
+configs — the local/API distinction applies to the answer step only.
+
+### Caveat: Answer Relevancy reliability
+
+Several Answer Relevancy scores are exactly 0.0 across all configs — including cases where the
+raw answer is clearly on-topic. This is a known edge case in RAGAS's `ResponseRelevancy` metric:
+when the embedding similarity between the generated probe question and the original question falls
+below an internal threshold, the score collapses to zero rather than returning a low-but-nonzero
+value. The Answer Relevancy column should be treated as directionally useful but not fully
+reliable at this sample size.
 
 ## Re-training the Answer Model
 
@@ -233,32 +277,42 @@ A GPU is recommended (~4 minutes on CUDA; significantly longer on CPU). No API k
 - "What were the trending topics on social media during the first week of December 2024?"
 - "What was the public reaction to Joe Biden on social media in December 2024?"
 
-## Roadmap
+## Design Decisions
 
-### Completed
-- [x] Rebuild `exorde-week1` index (`python ingest.py`)
-- [x] Run `ingest_bge.py` on GPU to build `exorde-embed-bge`
-- [x] Run `ingest_theme_grouped.py` to build `exorde-chunked-theme`
-- [x] Complete all 5 RAG experiments in the notebook
-- [x] Fill in findings and conclusions in the notebook
-- [x] Production defaults (k=10, individual posts, `text-embedding-3-small`) confirmed by experiments
-- [x] Re-fine-tune answer model on synthetic Exorde data (domain-matched)
-- [x] Build `exorde-hybrid` index and fit BM25 params (`python ingest_hybrid.py`)
-- [x] Run Experiment 6 (hybrid search) in the notebook and fill in findings
-- [x] Remove router node — pipeline simplified to always apply HyDE (START → hyde_node → retrieve_node → answer_node → END)
+### LangGraph: Deterministic Pipeline, Not Dynamic Routing
 
-### Not Pursued
+The pipeline is implemented as a LangGraph `StateGraph` but the compiled graph is a fixed
+linear sequence — `hyde_node → retrieve_node → answer_node` — with no conditional edges or
+runtime routing. Experiment 2 tested conditional HyDE (routing based on query type) and found
+it underperformed unconditional HyDE, so routing was abandoned and the graph converged on a
+straight sequence.
 
-**Metadata filtering** — pre-filtering the vector search by metadata fields (theme, date, source) before querying Pinecone was considered but not implemented for three reasons specific to this dataset:
+LangGraph was retained because it provides clean state management via a typed `AgentState`
+dict, makes the data-flow between nodes explicit, and produces a built-in graph visualisation.
+For a fixed pipeline a plain function chain would also work — LangGraph earns its place here
+by making the structure inspectable and easy to extend if routing is added later.
+
+### Not Adopted: Hybrid Search
+
+Hybrid search (dense + BM25 sparse vectors) was built and evaluated in Experiment 6 but not adopted in the production pipeline. Results showed it consistently underperforms pure dense retrieval on this dataset:
+
+| Config | Avg Score |
+|---|---|
+| Dense only (`alpha=1.0`) | 0.490 |
+| Hybrid (`alpha=0.75`) | 0.394 |
+| Hybrid (`alpha=0.5`) | 0.306 |
+
+BM25 rewards exact keyword overlap, but social media posts are short, informal, and rarely repeat query terms verbatim. Adding sparse signal introduced noise that hurt retrieval quality. Dense embeddings capture semantic similarity more reliably for this corpus, so `app.py` continues to use `PineconeRetriever` only.
+
+### Not Adopted: Metadata Filtering
+
+Pre-filtering the vector search by metadata fields (theme, date, source) before querying Pinecone was considered but not implemented for three reasons specific to this dataset:
 
 1. **Single-week coverage** — the dataset is `exorde-social-media-december-2024-week1`. All 50,000 posts are from the same week, making date filtering meaningless.
 2. **Automated theme tags** — `primary_theme` is generated automatically by Exorde's classifier, not human-annotated. Social media posts frequently span multiple topics, and single-label classification produces enough noise that hard filtering on theme would exclude genuinely relevant posts.
 3. **No source field** — the dataset does not include which platform or domain each post came from, ruling out source-based filtering entirely.
 
 Metadata filtering would be a high-value improvement on a multi-week, multi-source corpus with curated labels. It was a design decision not to pursue it here rather than a gap.
-
-### Upcoming
-- [ ] Switch `app.py` to use `HybridRetriever` if Experiment 6 confirms hybrid outperforms dense
 
 ## Notes
 
