@@ -15,10 +15,7 @@ from langchain_core.runnables import RunnableLambda
 from agents.nodes import AgentNodes
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
-
 def make_state(**kwargs) -> dict:
     """Return a minimal AgentState dict with sensible defaults."""
     base = {
@@ -39,10 +36,7 @@ def make_nodes(retriever=None, model=None, tokenizer=None) -> AgentNodes:
     )
 
 
-# ---------------------------------------------------------------------------
 # hyde_node
-# ---------------------------------------------------------------------------
-
 def test_hyde_node_sets_rewritten_query():
     nodes = make_nodes()
     nodes.llm = RunnableLambda(lambda _: AIMessage(content="just bought more $BTC lol"))
@@ -62,10 +56,7 @@ def test_hyde_node_preserves_other_state_fields():
     assert result["answer"] == "existing"
 
 
-# ---------------------------------------------------------------------------
 # retrieve_node
-# ---------------------------------------------------------------------------
-
 def test_retrieve_node_uses_rewritten_query():
     mock_retriever = MagicMock()
     mock_retriever.retrieve.return_value = []
@@ -102,10 +93,7 @@ def test_retrieve_node_returns_docs_in_state():
     assert result["retrieved_docs"][0].page_content == "a post"
 
 
-# ---------------------------------------------------------------------------
 # answer_node
-# ---------------------------------------------------------------------------
-
 def test_answer_node_formats_context_correctly():
     """
     answer_node must format posts and question in a way that matches the

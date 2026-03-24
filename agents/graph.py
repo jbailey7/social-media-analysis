@@ -1,12 +1,9 @@
 """
-LangGraph graph definition.
+Builds and compiles the LangGraph pipeline.
 
-Graph structure:
-  START → hyde_node → retrieve_node → answer_node → END
-
-HyDE is always applied — experiments confirmed that always generating a
-hypothetical document before retrieval outperforms conditional routing
-(see notebooks/rag_experiments.ipynb, Experiment 2).
+The graph is a straight sequence: START → hyde → retrieve → answer → END.
+Conditional routing was tested in Experiment 2 and didn't help, so this
+is intentionally a fixed pipeline rather than a dynamic agent.
 """
 
 import logging
@@ -20,12 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def build_graph(nodes: AgentNodes):
-    """
-    Build and compile the multi-agent LangGraph.
-
-    Args:
-        nodes: Initialised AgentNodes instance carrying all dependencies.
-    """
+    """Build and compile the graph. Takes an AgentNodes instance with all dependencies loaded."""
     builder = StateGraph(AgentState)
 
     builder.add_node("hyde_node", nodes.hyde_node)
@@ -41,7 +33,7 @@ def build_graph(nodes: AgentNodes):
 
 
 def save_graph_image(graph, path: str = "graph.png"):
-    """Save a Mermaid-rendered PNG of the compiled graph."""
+    """Render the graph as a PNG and save it. Used by the Streamlit sidebar."""
     try:
         from langchain_core.runnables.graph import MermaidDrawMethod
         img_bytes = graph.get_graph().draw_mermaid_png(

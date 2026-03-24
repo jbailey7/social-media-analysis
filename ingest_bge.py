@@ -1,18 +1,9 @@
 """
-Ingestion script using BAAI/bge-large-en-v1.5 embeddings.
+Builds the BGE embedding index for Experiment 4.
 
-Builds a Pinecone index from the Exorde dataset using a local open-source
-embedding model rather than the OpenAI API. This eliminates the per-query
-embedding cost and removes the OpenAI dependency from the retrieval path.
-
-Index name:  exorde-embed-bge  (1024 dimensions)
-Embedding:   BAAI/bge-large-en-v1.5 via sentence-transformers
-
-Usage:
-    python ingest_bge.py
-
-Requires only PINECONE_API_KEY — no OpenAI key needed.
-Runtime: ~60–90 minutes on CPU; faster on GPU.
+Uses BAAI/bge-large-en-v1.5 (local, no API calls) instead of text-embedding-3-small
+to see if a different embedding model improves retrieval. Needs only a Pinecone key.
+Takes 60–90 minutes on CPU; much faster with a GPU.
 """
 
 import logging
@@ -33,10 +24,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 # Config
-# ---------------------------------------------------------------------------
-
 INDEX_NAME  = os.getenv("PINECONE_BGE_INDEX_NAME", "exorde-embed-bge")
 EMBED_DIM   = 1024   # BAAI/bge-large-en-v1.5 output dimension
 CLOUD       = "aws"
@@ -44,12 +32,9 @@ REGION      = "us-east-1"
 BATCH_SIZE  = 64     # smaller batch size than OpenAI due to local inference
 
 
-# ---------------------------------------------------------------------------
 # Pinecone index setup
-# ---------------------------------------------------------------------------
-
 def get_or_create_index(pc: Pinecone):
-    """Create the Pinecone index if it doesn't exist, then return it."""
+    """Return the Pinecone index, creating it first if it doesn't exist."""
     existing = [idx["name"] for idx in pc.list_indexes()]
 
     if INDEX_NAME not in existing:
@@ -69,12 +54,9 @@ def get_or_create_index(pc: Pinecone):
     return pc.Index(INDEX_NAME)
 
 
-# ---------------------------------------------------------------------------
 # Metadata safety
-# ---------------------------------------------------------------------------
-
 def safe_metadata(meta: dict) -> dict:
-    """Strip non-serializable values so Pinecone accepts the metadata."""
+    """Pinecone only accepts strings, numbers, and bools — drop anything else."""
     out = {}
     for k, v in (meta or {}).items():
         if v is None:
@@ -84,11 +66,6 @@ def safe_metadata(meta: dict) -> dict:
         else:
             out[k] = str(v)
     return out
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 def main():
     logging.basicConfig(
@@ -101,8 +78,7 @@ def main():
     if not pinecone_key:
         raise EnvironmentError("PINECONE_API_KEY is not set.")
 
-    # Auto-select device: CUDA GPU if available, otherwise CPU.
-    # MPS (Apple Silicon) is intentionally excluded due to memory limitations.
+    # Use CUDA if available. MPS (Apple Silicon) is skipped due to memory issues.
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     logger.info("Using device: %s", device)
 
@@ -128,7 +104,7 @@ def main():
         texts = [c["text"] for c in batch]
         metas = [safe_metadata(c["metadata"]) for c in batch]
 
-        # BGE recommends normalising embeddings for cosine similarity
+        # BGE recommends normalising for cosine similarity
         embeddings = model.encode(texts, normalize_embeddings=True)
         vectors    = embeddings.tolist()
 

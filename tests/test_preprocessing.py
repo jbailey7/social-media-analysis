@@ -7,7 +7,7 @@ clean_post() is a pure function with no external dependencies — no mocking nee
 from rag.preprocessing import clean_post
 
 
-# --- URL removal ---
+# URL removal
 
 def test_removes_http_url():
     assert clean_post("check this out http://example.com") == "check this out"
@@ -36,7 +36,7 @@ def test_removes_multiple_urls():
     assert "b.com" not in result
 
 
-# --- Whitespace normalisation ---
+# Whitespace normalisation
 
 def test_normalizes_multiple_spaces():
     assert clean_post("too   many    spaces") == "too many spaces"
@@ -54,7 +54,7 @@ def test_normalizes_tabs():
     assert clean_post("word1\tword2") == "word1 word2"
 
 
-# --- Edge cases ---
+# Edge cases
 
 def test_handles_none():
     assert clean_post(None) == ""
@@ -69,7 +69,7 @@ def test_non_string_input_is_cast_to_string():
     assert clean_post(12345) == "12345"
 
 
-# --- Preserved content ---
+# Preserved content
 
 def test_preserves_hashtags():
     # clean_post does not remove hashtags — only URLs and excess whitespace

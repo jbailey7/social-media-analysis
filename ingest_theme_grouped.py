@@ -1,20 +1,9 @@
 """
-Ingestion script using theme-grouped chunking.
+Builds the theme-grouped index for Experiment 5.
 
-Rather than treating each social media post as an individual chunk, this script
-groups posts by their primary_theme field and concatenates them into larger chunks.
-Each chunk represents a coherent thematic unit, giving the embedding model richer
-context and reducing the total number of vectors in the index.
-
-Index name:  exorde-chunked-theme
-Embedding:   text-embedding-3-small (1536 dimensions)
-Chunk size:  5 posts per chunk (configurable via GROUP_SIZE)
-
-Usage:
-    python ingest_theme_grouped.py
-
-Requires OPENAI_API_KEY and PINECONE_API_KEY set in .env or the environment.
-Runtime: ~30–60 minutes depending on API throughput.
+Instead of one vector per post, groups posts by theme and concatenates them
+into larger chunks before embedding. The idea is that richer context might
+improve retrieval quality. Chunk size is set by GROUP_SIZE (default: 5 posts).
 """
 
 import logging
@@ -35,10 +24,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 # Config
-# ---------------------------------------------------------------------------
-
 INDEX_NAME  = os.getenv("PINECONE_THEME_INDEX_NAME", "exorde-chunked-theme")
 EMBED_DIM   = 1536
 CLOUD       = "aws"
@@ -47,17 +33,12 @@ BATCH_SIZE  = 100
 GROUP_SIZE  = 5   # number of posts to combine per theme-chunk
 
 
-# ---------------------------------------------------------------------------
 # Chunking
-# ---------------------------------------------------------------------------
-
 def build_theme_chunks(chunks: list, group_size: int = GROUP_SIZE) -> list:
     """
-    Group posts by primary_theme and concatenate into larger chunks.
+    Group posts by theme and join them into larger chunks.
 
-    Posts within each theme are grouped sequentially in groups of group_size.
-    The combined text uses ' | ' as a separator between posts.
-
+    Posts are grouped sequentially within each theme, separated by ' | '.
     chunk_id format: theme_<theme>_<group_start_index>
     """
     by_theme = defaultdict(list)
@@ -84,12 +65,9 @@ def build_theme_chunks(chunks: list, group_size: int = GROUP_SIZE) -> list:
     return theme_chunks
 
 
-# ---------------------------------------------------------------------------
 # Pinecone index setup
-# ---------------------------------------------------------------------------
-
 def get_or_create_index(pc: Pinecone):
-    """Create the Pinecone index if it doesn't exist, then return it."""
+    """Return the Pinecone index, creating it first if it doesn't exist."""
     existing = [idx["name"] for idx in pc.list_indexes()]
 
     if INDEX_NAME not in existing:
@@ -109,12 +87,9 @@ def get_or_create_index(pc: Pinecone):
     return pc.Index(INDEX_NAME)
 
 
-# ---------------------------------------------------------------------------
 # Embedding
-# ---------------------------------------------------------------------------
-
 def embed_texts(client: OpenAI, texts: List[str], max_retries: int = 6) -> List[List[float]]:
-    """Embed a batch of texts with exponential backoff on failure."""
+    """Embed a batch of texts. Retries with exponential backoff if the API call fails."""
     for attempt in range(max_retries):
         try:
             resp = client.embeddings.create(model=EMBED_MODEL, input=texts)
@@ -126,12 +101,9 @@ def embed_texts(client: OpenAI, texts: List[str], max_retries: int = 6) -> List[
     raise RuntimeError("Embedding failed after max retries.")
 
 
-# ---------------------------------------------------------------------------
 # Metadata safety
-# ---------------------------------------------------------------------------
-
 def safe_metadata(meta: dict) -> dict:
-    """Strip non-serializable values so Pinecone accepts the metadata."""
+    """Pinecone only accepts strings, numbers, and bools — drop anything else."""
     out = {}
     for k, v in (meta or {}).items():
         if v is None:
@@ -142,10 +114,6 @@ def safe_metadata(meta: dict) -> dict:
             out[k] = str(v)
     return out
 
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 def main():
     logging.basicConfig(

@@ -1,11 +1,8 @@
 """
-Streamlit front-end for the Social Media Intelligence Agent.
+Streamlit front-end.
 
-Runs the multi-agent LangGraph pipeline on user queries and displays:
-  - The generated answer (from fine-tuned SmolLM2-360M)
-  - Retrieved source posts
-  - Agent trace (HyDE rewritten query)
-  - LangGraph visualization in the sidebar
+Takes a question, runs it through the pipeline, and shows the answer,
+the HyDE rewritten query, the retrieved posts, and a graph visualisation.
 """
 
 import logging
@@ -19,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# --- Page config ---
+# Page config
 st.set_page_config(
     page_title="Social Media Intelligence Agent",
     page_icon="🔍",
@@ -34,7 +31,7 @@ st.caption(
 )
 
 
-# --- Load all resources and compile graph (cached so they only load once) ---
+# Load everything once and cache it so Streamlit doesn't reload on every interaction.
 
 @st.cache_resource(show_spinner="Building agent graph and loading models...")
 def load_everything():
@@ -63,7 +60,7 @@ except Exception as e:
     st.stop()
 
 
-# --- Sidebar: graph visualization and info ---
+# Sidebar
 with st.sidebar:
     st.header("Agent Graph")
     if Path("graph.png").exists():
@@ -82,7 +79,7 @@ with st.sidebar:
     st.markdown("Exorde social media posts · December 2024 · 50k English posts")
 
 
-# --- Main query interface ---
+# Query form
 st.subheader("Ask a question about social media in December 2024")
 
 with st.form("query_form"):
@@ -108,16 +105,16 @@ if submitted and question.strip():
             st.error(f"**The agent encountered an error.** {e}")
 
     if result is not None:
-        # --- Answer ---
+        # Answer
         st.subheader("Answer")
         st.write(result["answer"])
 
-        # --- Agent trace ---
+        # Agent trace
         with st.expander("Agent trace", expanded=False):
             st.markdown("**HyDE rewritten query:**")
             st.info(result["rewritten_query"])
 
-        # --- Retrieved posts ---
+        # Retrieved posts
         with st.expander(f"Retrieved posts ({len(result['retrieved_docs'])} found)", expanded=False):
             for i, doc in enumerate(result["retrieved_docs"], start=1):
                 meta = doc.metadata

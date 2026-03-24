@@ -1,19 +1,12 @@
 """
-One-time ingestion script — populates the hybrid Pinecone index.
+Builds the hybrid Pinecone index for Experiment 6.
 
-Hybrid search combines dense vectors (OpenAI text-embedding-3-small) with
-sparse vectors (BM25) to capture both semantic similarity and keyword overlap.
-Pinecone requires 'dotproduct' as the metric for hybrid indexes.
+Stores both dense (text-embedding-3-small) and BM25 sparse vectors so
+retrieval can blend semantic and keyword matching at query time.
+Pinecone requires dotproduct as the metric for hybrid indexes.
 
-BM25 params are fitted on the full corpus and saved to bm25_params.json so
-the HybridRetriever can produce matching sparse query vectors at runtime
-without re-fitting.
-
-Usage:
-    python ingest_hybrid.py
-
-Requires OPENAI_API_KEY and PINECONE_API_KEY set in .env or the environment.
-Runtime: ~30–60 minutes depending on API throughput.
+BM25 params are fitted here and saved to bm25_params.json so HybridRetriever
+can use them later without re-fitting the whole corpus.
 """
 
 import json
@@ -36,10 +29,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 # Config
-# ---------------------------------------------------------------------------
-
 INDEX_NAME    = os.getenv("PINECONE_HYBRID_INDEX_NAME", "exorde-hybrid")
 EMBED_DIM     = 1536
 CLOUD         = "aws"
@@ -48,12 +38,9 @@ BATCH_SIZE    = 100
 BM25_PARAMS_PATH = "bm25_params.json"
 
 
-# ---------------------------------------------------------------------------
 # Pinecone index setup
-# ---------------------------------------------------------------------------
-
 def get_or_create_index(pc: Pinecone):
-    """Create a dotproduct index for hybrid search if it doesn't exist."""
+    """Return the hybrid Pinecone index, creating it first if it doesn't exist."""
     existing = [idx["name"] for idx in pc.list_indexes()]
 
     if INDEX_NAME not in existing:
@@ -73,12 +60,9 @@ def get_or_create_index(pc: Pinecone):
     return pc.Index(INDEX_NAME)
 
 
-# ---------------------------------------------------------------------------
 # BM25
-# ---------------------------------------------------------------------------
-
 def fit_and_save_bm25(texts: List[str]) -> BM25Encoder:
-    """Fit BM25 on the full corpus and save params for later query-time use."""
+    """Fit BM25 on all posts and save the params so HybridRetriever can load them later."""
     logger.info("Fitting BM25 encoder on corpus...")
     bm25 = BM25Encoder()
     bm25.fit(texts)
@@ -86,10 +70,6 @@ def fit_and_save_bm25(texts: List[str]) -> BM25Encoder:
     logger.info("BM25 params saved to %s", BM25_PARAMS_PATH)
     return bm25
 
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 def main():
     logging.basicConfig(
@@ -120,9 +100,9 @@ def main():
     index = get_or_create_index(pc)
     logger.info("Index stats before upsert: %s", index.describe_index_stats())
 
-    # Step 4: Embed + encode sparse + upsert
-    # Vectors are stored unscaled — alpha blending happens at query time,
-    # which allows different alpha values to be tested without re-ingesting.
+    # Step 4: Embed + encode sparse + upsert.
+    # Vectors are stored unscaled so we can test different alpha values at query time
+    # without having to re-ingest everything.
     logger.info("Embedding and upserting %s chunks in batches of %d...", f"{len(chunks):,}", BATCH_SIZE)
     total_skipped = 0
     for start in tqdm(range(0, len(chunks), BATCH_SIZE), desc="Upserting"):
@@ -135,8 +115,7 @@ def main():
         dense_vecs  = embed_texts(client, batch_texts)
         sparse_vecs = bm25.encode_documents(batch_texts)
 
-        # Skip any document whose sparse vector is empty (BM25 found no
-        # known tokens — happens with very short or heavily-punctuated posts).
+        # BM25 produces empty sparse vectors for very short or punctuation-heavy posts — skip those.
         vectors = []
         skipped = 0
         for _id, dense, sparse, meta in zip(ids, dense_vecs, sparse_vecs, metas):

@@ -1,9 +1,8 @@
 """
-Shared preprocessing for the Exorde dataset.
+Loads and cleans the Exorde dataset.
 
-Centralises dataset loading and text cleaning so that ingestion and retrieval
-use identical preprocessing. chunk_ids encode the raw dataset row index,
-making them stable across both steps.
+Used by both ingestion and retrieval so they always preprocess text the same way.
+chunk_ids are based on the raw row index so they stay consistent across both steps.
 """
 
 import hashlib
@@ -32,17 +31,9 @@ def clean_post(text: str) -> str:
 
 def load_chunks(verbose: bool = True) -> list:
     """
-    Load and preprocess the Exorde dataset into a list of chunk dicts.
+    Load the Exorde dataset and return a list of cleaned post dicts.
 
-    Each chunk has the shape:
-        {
-            "chunk_id": "exorde_<i>",
-            "text":     <cleaned post text>,
-            "metadata": {lang, timestamp, primary_theme, sentiment},
-        }
-
-    The chunk_id encodes the raw dataset row index, making it stable across
-    ingestion and retrieval.
+    Each dict has chunk_id, text, and metadata (lang, timestamp, theme, sentiment).
     """
     if verbose:
         logger.info("Loading Exorde dataset from HuggingFace...")

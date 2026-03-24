@@ -1,12 +1,9 @@
 """
-Loads the LoRA fine-tuned SmolLM2-360M-Instruct.
+Loads SmolLM2-360M-Instruct, with or without the LoRA adapter.
 
-The model is fine-tuned on synthetic (posts, question, answer) triples generated
-from the Exorde dataset, teaching it to answer natural language questions from
-retrieved social media posts — the same task it performs in the production pipeline.
-
-The fine-tuned LoRA adapter weights are included in this repository at:
-  fine_tuned_model/
+The fine-tuned version was trained on synthetic Q&A examples generated from the
+same Exorde dataset the retrieval index uses, so the training task matches inference.
+Adapter weights are stored in fine_tuned_model/.
 """
 
 import logging
@@ -29,10 +26,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def load_model():
-    """
-    Load the base SmolLM2-360M and apply the LoRA fine-tuned adapter.
-    Returns (model, tokenizer).
-    """
+    """Load the base model and apply the LoRA adapter. Returns (model, tokenizer)."""
     if not Path(FINE_TUNED_PATH).exists():
         raise FileNotFoundError(
             f"Fine-tuned model not found at: {FINE_TUNED_PATH}\n"
@@ -60,11 +54,7 @@ def load_model():
 
 
 def load_base_model():
-    """
-    Load the base SmolLM2-360M-Instruct without any LoRA adapter.
-    Used for evaluation config C (advanced agentic RAG without fine-tuning).
-    Returns (model, tokenizer).
-    """
+    """Load the base model with no LoRA adapter. Used for eval config C. Returns (model, tokenizer)."""
     logger.info("Loading SmolLM2-360M base (no LoRA) from %s...", MODEL_ID)
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     if tokenizer.pad_token is None:
@@ -85,12 +75,10 @@ def load_base_model():
 
 def generate_summary(model, tokenizer, context: str, max_new_tokens: int = 150) -> str:
     """
-    Generate an answer from the provided context.
+    Generate an answer given the formatted context string.
 
-    The context is pre-formatted by answer_node as:
-      'Here are social media posts from December 2024:\\n\\nPost 1: ...\\n\\nQuestion: ...'
-
-    This matches the format used during fine-tuning, ensuring consistent output.
+    The context is built by answer_node in the same format used during fine-tuning,
+    so the model knows what to expect.
     """
     messages = [
         {
@@ -103,7 +91,7 @@ def generate_summary(model, tokenizer, context: str, max_new_tokens: int = 150) 
         add_generation_prompt=True,
         return_tensors="pt",
     )
-    # apply_chat_template may return a dict or a tensor depending on version
+    # apply_chat_template returns either a dict or a tensor depending on the transformers version
     if isinstance(inputs, dict):
         input_ids = inputs["input_ids"].to(model.device)
     else:

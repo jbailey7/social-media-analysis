@@ -1,15 +1,9 @@
 """
-One-time ingestion script — populates the Pinecone vector index.
+One-time setup script — builds the main Pinecone index.
 
-Loads 50,000 English social media posts from the Exorde HuggingFace dataset,
-embeds them with OpenAI's text-embedding-3-small, and upserts them into a
-Pinecone serverless index. Run this once before starting the app.
-
-Usage:
-    python ingest.py
-
-Requires OPENAI_API_KEY and PINECONE_API_KEY set in .env or the environment.
-Runtime: ~30–60 minutes depending on API throughput.
+Loads 50k English posts from the Exorde dataset, embeds them with
+text-embedding-3-small, and upserts everything into Pinecone.
+Run this once before starting the app. Takes 30–60 minutes.
 """
 
 import logging
@@ -29,10 +23,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 # Config
-# ---------------------------------------------------------------------------
-
 INDEX_NAME   = os.getenv("PINECONE_INDEX_NAME", "exorde-week1")
 EMBED_DIM    = 1536
 CLOUD        = "aws"
@@ -40,12 +31,9 @@ REGION       = "us-east-1"
 BATCH_SIZE   = 100
 
 
-# ---------------------------------------------------------------------------
 # Pinecone index setup
-# ---------------------------------------------------------------------------
-
 def get_or_create_index(pc: Pinecone):
-    """Create the Pinecone index if it doesn't exist, then return it."""
+    """Return the Pinecone index, creating it first if it doesn't exist."""
     existing = [idx["name"] for idx in pc.list_indexes()]
 
     if INDEX_NAME not in existing:
@@ -65,12 +53,9 @@ def get_or_create_index(pc: Pinecone):
     return pc.Index(INDEX_NAME)
 
 
-# ---------------------------------------------------------------------------
 # Embedding
-# ---------------------------------------------------------------------------
-
 def embed_texts(client: OpenAI, texts: List[str], max_retries: int = 6) -> List[List[float]]:
-    """Embed a batch of texts with exponential backoff on failure."""
+    """Embed a batch of texts. Retries with exponential backoff if the API call fails."""
     for attempt in range(max_retries):
         try:
             resp = client.embeddings.create(model=EMBED_MODEL, input=texts)
@@ -82,12 +67,9 @@ def embed_texts(client: OpenAI, texts: List[str], max_retries: int = 6) -> List[
     raise RuntimeError("Embedding failed after max retries.")
 
 
-# ---------------------------------------------------------------------------
 # Metadata safety
-# ---------------------------------------------------------------------------
-
 def safe_metadata(meta: dict) -> dict:
-    """Strip non-serializable values so Pinecone accepts the metadata."""
+    """Pinecone only accepts strings, numbers, and bools — drop anything else."""
     out = {}
     for k, v in (meta or {}).items():
         if v is None:
@@ -99,10 +81,7 @@ def safe_metadata(meta: dict) -> dict:
     return out
 
 
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
-
 def main():
     logging.basicConfig(
         level=logging.INFO,

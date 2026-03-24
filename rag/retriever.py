@@ -1,15 +1,10 @@
 """
-Pinecone retrievers.
+Two retriever classes:
+  PineconeRetriever — dense vector search only (what the app uses)
+  HybridRetriever   — dense + BM25 sparse, used in the hybrid search experiment
 
-PineconeRetriever  — dense-only retrieval using text-embedding-3-small.
-HybridRetriever    — dense + sparse (BM25) retrieval with alpha blending.
-
-Both classes share the same chunk_lookup strategy: full post text is stored
-locally and resolved by chunk ID, keeping Pinecone metadata lightweight.
-
-Hybrid search requires a Pinecone index created with metric='dotproduct' and
-BM25 params pre-fitted by ingest_hybrid.py (saved to bm25_params.json).
-Alpha controls the blend: 1.0 = pure dense, 0.0 = pure sparse.
+Both store full post text locally and look it up by chunk ID after the
+Pinecone query, so Pinecone only needs to store lightweight metadata.
 """
 
 import os
@@ -28,7 +23,7 @@ INDEX_NAME  = os.getenv("PINECONE_INDEX_NAME", "exorde-week1")
 
 
 class PineconeRetriever:
-    """Wraps Pinecone + local chunk_lookup for text-resolved retrieval."""
+    """Dense vector retriever backed by Pinecone."""
 
     def __init__(self):
         self.embeddings = OpenAIEmbeddings(
@@ -40,10 +35,7 @@ class PineconeRetriever:
         self.chunk_lookup = {c["chunk_id"]: c for c in load_chunks()}
 
     def retrieve(self, query: str, k: int = 10) -> List[Document]:
-        """
-        Embed query, search Pinecone, resolve full text from chunk_lookup.
-        Returns a list of LangChain Document objects.
-        """
+        """Embed the query, search Pinecone, and return the top-k posts as Documents."""
         query_vec = self.embeddings.embed_query(query)
         results   = self.index.query(
             vector=query_vec,
@@ -63,25 +55,18 @@ class PineconeRetriever:
         return docs
 
 
-# ---------------------------------------------------------------------------
 # Hybrid retriever (dense + sparse BM25)
-# ---------------------------------------------------------------------------
-
 HYBRID_INDEX_NAME  = os.getenv("PINECONE_HYBRID_INDEX_NAME", "exorde-hybrid")
 BM25_PARAMS_PATH   = os.path.join(os.path.dirname(__file__), "..", "bm25_params.json")
 
 
 class HybridRetriever:
     """
-    Combines dense (OpenAI) and sparse (BM25) retrieval via Pinecone hybrid search.
+    Combines dense and BM25 sparse retrieval. Alpha controls the mix:
+      1.0 = pure dense, 0.5 = equal blend, 0.0 = pure keyword search.
 
-    Alpha controls the dense/sparse blend at query time:
-        alpha=1.0  →  pure dense (equivalent to PineconeRetriever)
-        alpha=0.5  →  equal blend
-        alpha=0.0  →  pure sparse / keyword search
-
-    The index must use metric='dotproduct' (created by ingest_hybrid.py).
-    BM25 params are loaded from bm25_params.json (fitted by ingest_hybrid.py).
+    Requires a dotproduct Pinecone index (created by ingest_hybrid.py) and
+    pre-fitted BM25 params saved in bm25_params.json.
     """
 
     def __init__(self, alpha: float = 0.75):
@@ -104,7 +89,7 @@ class HybridRetriever:
         self.bm25.load(BM25_PARAMS_PATH)
 
     def _scale(self, sparse_vec: dict) -> dict:
-        """Scale sparse values by (1 - alpha)."""
+        """Multiply sparse values by (1 - alpha) to apply the blend weight."""
         scale = 1.0 - self.alpha
         return {
             "indices": sparse_vec["indices"],
@@ -112,10 +97,7 @@ class HybridRetriever:
         }
 
     def retrieve(self, query: str, k: int = 10) -> List[Document]:
-        """
-        Encode query with both dense and sparse encoders, blend with alpha,
-        query Pinecone, and resolve full text from chunk_lookup.
-        """
+        """Encode with both dense and sparse, blend by alpha, and return top-k posts."""
         # Dense vector scaled by alpha
         dense_raw  = self.embeddings.embed_query(query)
         dense_vec  = [v * self.alpha for v in dense_raw]

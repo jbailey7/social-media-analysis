@@ -1,22 +1,14 @@
 """
-Evaluation script for the Social Media Intelligence Agent.
+Runs 7 test questions through 4 configurations and scores them with RAGAS.
 
-Runs 7 test questions through 4 configurations, scores answer quality
-using RAGAS, and saves all results to evaluation_results.json.
+Configs:
+  A — gpt-4o-mini with no retrieval (baseline)
+  B — Pinecone + gpt-4o-mini, no pipeline
+  C — Full pipeline with base SmolLM2-360M
+  D — Full pipeline with LoRA fine-tuned SmolLM2-360M
 
-Configurations:
-  A — Base LLM          — gpt-4o-mini with no retrieval
-  B — Basic RAG         — Pinecone retriever + gpt-4o-mini
-  C — Advanced RAG      — Full agentic pipeline with base SmolLM2-360M
-  D — Advanced RAG (FT) — Full agentic pipeline with LoRA fine-tuned SmolLM2-360M
-
-RAGAS metrics (configs B, C, D only — config A has no retrieved context):
-  faithfulness                          — claims in the answer are grounded in the retrieved posts
-  answer_relevancy (ResponseRelevancy)  — answer actually addresses the question
-  context_precision                     — retrieved posts are relevant to the question
-
-Usage:
-  python evaluate.py
+Config A is excluded from RAGAS since it has no retrieved context.
+Results are saved to evaluation_results.json.
 """
 
 import logging
@@ -34,10 +26,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 # Test questions
-# ---------------------------------------------------------------------------
-
 QUESTIONS = [
     "What were people saying about cryptocurrency and Bitcoin in December 2024?",
     "What was public sentiment around AI tools like ChatGPT in December 2024?",
@@ -48,20 +37,14 @@ QUESTIONS = [
     "What sports topics were trending on social media in December 2024?",
 ]
 
-# ---------------------------------------------------------------------------
 # Shared LLM
-# ---------------------------------------------------------------------------
-
 llm = ChatOpenAI(
     model=CHAT_MODEL,
     temperature=0,
     openai_api_key=os.getenv("OPENAI_API_KEY"),
 )
 
-# ---------------------------------------------------------------------------
 # Config A: Base LLM (no RAG)
-# ---------------------------------------------------------------------------
-
 def run_base_llm(question: str) -> str:
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You are a helpful assistant. Answer the question as best you can."),
@@ -71,10 +54,7 @@ def run_base_llm(question: str) -> str:
     return chain.invoke({"question": question})
 
 
-# ---------------------------------------------------------------------------
 # Config B: Basic RAG (retriever + gpt-4o-mini, no agents)
-# ---------------------------------------------------------------------------
-
 def run_basic_rag(question: str, retriever) -> dict:
     docs = retriever.retrieve(question, k=10)
     context = "\n\n".join([
@@ -94,15 +74,9 @@ def run_basic_rag(question: str, retriever) -> dict:
     return {"answer": answer, "docs": docs}
 
 
-# ---------------------------------------------------------------------------
 # Config C & D: Advanced Agentic RAG
-# ---------------------------------------------------------------------------
-
 def run_advanced_rag(question: str, nodes) -> dict:
-    """
-    Runs HyDE → retrieve → SmolLM2 answer using the provided AgentNodes instance.
-    HyDE is always applied. Returns answer, retrieved docs, and trace fields.
-    """
+    """Run the full pipeline (HyDE → retrieve → answer) and return the result."""
     state = {
         "question": question,
         "rewritten_query": "",
@@ -121,18 +95,9 @@ def run_advanced_rag(question: str, nodes) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
 # RAGAS scoring
-# ---------------------------------------------------------------------------
-
 def score_with_ragas(questions: list, answers: list, docs_list: list) -> list:
-    """
-    Scores a set of (question, answer, retrieved_docs) triples using RAGAS.
-
-    Returns a list of per-question score dicts, one per question. Metric keys
-    are whatever RAGAS returns (e.g. 'faithfulness', 'answer_relevancy',
-    'context_precision').
-    """
+    """Score a list of (question, answer, docs) triples with RAGAS. Returns one score dict per question."""
     from ragas import evaluate, EvaluationDataset, SingleTurnSample
     from ragas.metrics import Faithfulness, ResponseRelevancy, LLMContextPrecisionWithoutReference
     from ragas.llms import llm_factory
@@ -142,16 +107,15 @@ def score_with_ragas(questions: list, answers: list, docs_list: list) -> list:
 
     api_key = os.getenv("OPENAI_API_KEY")
 
-    # Use llm_factory (ragas 0.2+ preferred API). max_tokens passed as kwarg
-    # so RAGAS doesn't truncate mid-response when scoring long answers.
+    # max_tokens bumped to 16000 so RAGAS doesn't truncate when scoring long answers.
     evaluator_llm = llm_factory(
         CHAT_MODEL,
         client=OpenAI(api_key=api_key),
         max_tokens=16000,
     )
 
-    # Explicitly use text-embedding-3-small so RAGAS doesn't fall back to
-    # text-embedding-ada-002, which this project's API key doesn't have access to.
+    # Explicitly set the embedding model — without this RAGAS defaults to
+    # text-embedding-ada-002, which this project's API key can't access.
     evaluator_embeddings = LangchainEmbeddingsWrapper(
         OpenAIEmbeddings(model=EMBED_MODEL, openai_api_key=api_key)
     )
@@ -169,10 +133,9 @@ def score_with_ragas(questions: list, answers: list, docs_list: list) -> list:
         dataset=dataset,
         metrics=[
             Faithfulness(),
-            # strictness=1 requests only 1 generated question per answer instead
-            # of the default 3.  gpt-4o-mini returns 1 generation at a time, so
-            # the default causes "LLM returned 1 instead of 3" warnings and most
-            # scores collapse to 0.0.
+            # strictness=1 asks for 1 probe question instead of the default 3.
+            # gpt-4o-mini only returns 1 at a time anyway, and the default setting
+            # causes most scores to collapse to 0.0.
             ResponseRelevancy(strictness=1),
             LLMContextPrecisionWithoutReference(),
         ],
@@ -183,7 +146,7 @@ def score_with_ragas(questions: list, answers: list, docs_list: list) -> list:
 
 
 def _avg_scores(scores: list) -> dict:
-    """Averages a list of per-question score dicts, skipping None values."""
+    """Average a list of per-question score dicts. Skips None values."""
     if not scores:
         return {}
     keys = scores[0].keys()
@@ -195,10 +158,7 @@ def _avg_scores(scores: list) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
 # Main evaluation loop
-# ---------------------------------------------------------------------------
-
 def main():
     logging.basicConfig(
         level=logging.INFO,
@@ -283,10 +243,7 @@ def main():
         logger.info("C: %s...", entry['c_advanced_base'][:120])
         logger.info("D: %s...", entry['d_advanced_finetuned'][:120])
 
-    # ---------------------------------------------------------------------------
     # RAGAS scoring
-    # ---------------------------------------------------------------------------
-
     logger.info("=" * 80)
     logger.info("Running RAGAS evaluation (B, C, D)...")
     logger.info("Config A is excluded — no retrieved context to evaluate.")
@@ -310,10 +267,7 @@ def main():
         for i, score in enumerate(scores):
             results[i][f"{key}_ragas"] = score
 
-    # ---------------------------------------------------------------------------
     # Print summary table
-    # ---------------------------------------------------------------------------
-
     logger.info("=" * 80)
     logger.info("RAGAS Summary (averages across all questions)")
     logger.info("=" * 80)
@@ -329,10 +283,7 @@ def main():
         )
         logger.info(row)
 
-    # ---------------------------------------------------------------------------
     # Save results
-    # ---------------------------------------------------------------------------
-
     output = {
         "per_question": results,
         "ragas_summary": ragas_summary,

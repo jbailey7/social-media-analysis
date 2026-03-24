@@ -9,7 +9,7 @@ import pytest
 from ingest import safe_metadata
 
 
-# --- None and missing values ---
+# None and missing values
 
 def test_excludes_none_values():
     result = safe_metadata({"key": None, "other": "value"})
@@ -25,7 +25,7 @@ def test_handles_empty_dict():
     assert safe_metadata({}) == {}
 
 
-# --- Accepted types ---
+# Accepted types
 
 def test_keeps_string_values():
     assert safe_metadata({"theme": "Cryptocurrency"})["theme"] == "Cryptocurrency"
@@ -55,7 +55,7 @@ def test_keeps_empty_string():
     assert safe_metadata({"lang": ""})["lang"] == ""
 
 
-# --- Non-serializable types are stringified ---
+# Non-serializable types are stringified
 
 def test_stringifies_list():
     result = safe_metadata({"tags": ["a", "b", "c"]})
@@ -72,7 +72,7 @@ def test_stringifies_tuple():
     assert isinstance(result["pair"], str)
 
 
-# --- Mixed metadata dict ---
+# Mixed metadata dict
 
 def test_handles_mixed_types():
     result = safe_metadata({

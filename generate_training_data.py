@@ -1,18 +1,12 @@
 """
-Generates synthetic training data for fine-tuning SmolLM2-360M on the actual task.
+Generates training data for fine-tuning SmolLM2.
 
-Samples groups of thematically related posts from the Exorde dataset and uses
-GPT-4o-mini to generate (question, answer) pairs grounded in those posts. The
-resulting dataset directly matches the model's inference task: answer a natural
-language question from retrieved social media posts.
+Groups posts by theme, then uses GPT-4o-mini to write a question and answer for each
+group. The format matches exactly what the model sees at inference time, so training
+and production are aligned.
 
-Output:
-    training_data.jsonl   One JSON object per line, each with 'posts', 'question', 'answer'
-
-Usage:
-    python generate_training_data.py
-
-Cost estimate: ~1000 examples at gpt-4o-mini pricing ≈ $0.50–$1.00
+Output: training_data.jsonl — one JSON object per line with 'posts', 'question', 'answer'
+Cost:   ~$0.50–$1.00 for 1000 examples at gpt-4o-mini pricing
 """
 
 import json
@@ -33,11 +27,8 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 # Config
-# ---------------------------------------------------------------------------
-
-random.seed(42)
+random.seed(123)
 
 N_EXAMPLES   = 1000   # number of training examples to generate
 POSTS_PER_EX = 10     # posts per example — matches production k=10
@@ -45,10 +36,7 @@ OUTPUT_PATH  = Path("training_data.jsonl")
 TEMPERATURE  = 0.8    # some variation in question style
 RATE_LIMIT_S = 0.1    # sleep between API calls
 
-# ---------------------------------------------------------------------------
 # Prompts
-# ---------------------------------------------------------------------------
-
 SYSTEM_PROMPT = """\
 You are generating training data for a social media analysis system.
 
@@ -67,12 +55,9 @@ Respond in JSON:
 {"question": "...", "answer": "..."}
 """
 
-# ---------------------------------------------------------------------------
 # Data loading
-# ---------------------------------------------------------------------------
-
 def load_posts_by_theme() -> dict[str, list[str]]:
-    """Load Exorde posts and group by primary_theme."""
+    """Load posts from the Exorde dataset and group them by theme."""
     sys.path.insert(0, str(Path(__file__).parent))
     from rag.preprocessing import load_chunks
 
@@ -90,12 +75,9 @@ def load_posts_by_theme() -> dict[str, list[str]]:
     logger.info("Found %d themes with ≥%d posts.", len(by_theme), POSTS_PER_EX)
     return by_theme
 
-# ---------------------------------------------------------------------------
 # Generation
-# ---------------------------------------------------------------------------
-
 def generate_example(posts: list[str], client: OpenAI) -> dict | None:
-    """Call GPT-4o-mini to generate a (question, answer) pair for a set of posts."""
+    """Ask GPT-4o-mini to write a question and answer for a set of posts."""
     posts_text = "\n".join(f"Post {i+1}: {p}" for i, p in enumerate(posts))
     try:
         response = client.chat.completions.create(
@@ -117,10 +99,6 @@ def generate_example(posts: list[str], client: OpenAI) -> dict | None:
     except Exception as e:
         logger.warning("Generation failed: %s", e)
     return None
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 def main():
     logging.basicConfig(

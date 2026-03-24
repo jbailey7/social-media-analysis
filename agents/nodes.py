@@ -1,18 +1,8 @@
 """
-LangGraph node functions.
+The three nodes that make up the pipeline.
 
-All node methods live on AgentNodes, which takes its dependencies (retriever,
-model, tokenizer) via constructor injection. This avoids module-level mutable
-globals and makes the nodes straightforward to test with mock dependencies.
-
-Nodes:
-  hyde_node     — gpt-4o-mini generates a hypothetical social media post
-  retrieve_node — Pinecone retrieval using the HyDE-rewritten query
-  answer_node   — fine-tuned SmolLM2-360M generates the final answer
-
-HyDE is always applied. Experiments showed that always generating a
-hypothetical post before retrieval consistently outperforms conditional
-routing (see notebooks/rag_experiments.ipynb, Experiment 2).
+Dependencies are injected via the AgentNodes constructor rather than stored
+as module-level globals, which makes them easy to swap out in tests.
 """
 
 import os
@@ -29,12 +19,9 @@ from config import CHAT_MODEL
 
 class AgentNodes:
     """
-    Holds injected dependencies and exposes LangGraph-compatible node methods.
+    Holds the retriever, model, and tokenizer and exposes them as graph nodes.
 
-    Args:
-        retriever:  Initialised PineconeRetriever for post lookup.
-        model:      Loaded SmolLM2-360M (base or LoRA fine-tuned).
-        tokenizer:  Tokenizer matching the model.
+    Pass in a base or fine-tuned model — the nodes don't care which.
     """
 
     def __init__(self, retriever: PineconeRetriever, model, tokenizer):
@@ -47,40 +34,25 @@ class AgentNodes:
             openai_api_key=os.getenv("OPENAI_API_KEY"),
         )
 
-    # --- Node 1: HyDE ---
-
+    # Node 1: HyDE
     def hyde_node(self, state: AgentState) -> AgentState:
-        """
-        Uses gpt-4o-mini to generate a hypothetical social media post that
-        resembles what a relevant result would look like. Embedding this post
-        instead of the raw question improves retrieval because the index
-        contains posts, not questions.
-        """
+        """Rewrite the question as a fake social media post for better retrieval."""
         chain = HYDE_PROMPT | self.llm | StrOutputParser()
         hypothetical = chain.invoke({"question": state["question"]})
         return {**state, "rewritten_query": hypothetical}
 
-    # --- Node 2: Retriever ---
-
+    # Node 2: Retriever
     def retrieve_node(self, state: AgentState) -> AgentState:
-        """
-        Retrieves top-10 relevant social media posts from Pinecone.
-        Uses the HyDE-rewritten query; falls back to the original question
-        if rewritten_query is empty.
-        """
+        """Retrieve the top 10 posts from Pinecone. Uses the HyDE query if available."""
         query = state["rewritten_query"] if state["rewritten_query"] else state["question"]
         docs = self.retriever.retrieve(query, k=10)
         return {**state, "retrieved_docs": docs}
 
-    # --- Node 3: Answer (fine-tuned SmolLM2-360M) ---
-
+    # Node 3: Answer (fine-tuned SmolLM2-360M) 
     def answer_node(self, state: AgentState) -> AgentState:
         """
-        Formats retrieved posts and passes them to fine-tuned SmolLM2 to generate
-        the final answer.
-
-        The format matches the training data produced by generate_training_data.py:
-          'Here are social media posts from December 2024:\\n\\nPost 1: ...\\n\\nQuestion: ...'
+        Format the retrieved posts and question, then pass them to SmolLM2.
+        The prompt format matches what the model was trained on.
         """
         docs = state["retrieved_docs"]
         posts_text = "\n".join(
