@@ -1,7 +1,7 @@
 """
 Builds and compiles the LangGraph pipeline.
 
-The graph is a straight sequence: START → hyde → retrieve → answer → END.
+The graph is a straight sequence: START -> hyde -> retrieve -> answer -> END.
 Conditional routing was tested in Experiment 2 and didn't help, so this
 is intentionally a fixed pipeline rather than a dynamic agent.
 """
