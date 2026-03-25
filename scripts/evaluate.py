@@ -76,7 +76,7 @@ def run_basic_rag(question: str, retriever) -> dict:
 
 # Config C & D: Advanced Agentic RAG
 def run_advanced_rag(question: str, nodes) -> dict:
-    """Run the full pipeline (HyDE → retrieve → answer) and return the result."""
+    """Run the full pipeline (HyDE -> retrieve -> answer) and return the result."""
     state = {
         "question": question,
         "rewritten_query": "",
