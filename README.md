@@ -76,10 +76,12 @@ Full per-question scores are in `evaluation_results.json`.
 grounded in the retrieved posts (0.787) and retrieves the most precisely ranked context (0.601).
 This is expected — GPT-4o-mini is a significantly larger and more capable model than SmolLM2-360M.
 
-**Fine-tuning meaningfully improves SmolLM2 (C -> D).** Config D outperforms Config C on all
-three metrics. The base model (Config C) frequently hallucinates or repeats retrieved text
-verbatim rather than synthesising it, reflected in its low faithfulness score. Fine-tuning on
-domain-matched synthetic data reduces this behaviour.
+**Fine-tuning meaningfully improves SmolLM2 (C -> D).** Config D outperforms Config C on
+faithfulness and answer relevancy, but scores lower on context precision (0.383 vs 0.561).
+The base model (Config C) frequently hallucinates or repeats retrieved text verbatim rather
+than synthesising it, reflected in its low faithfulness score. Fine-tuning on domain-matched
+synthetic data reduces this behaviour, though the drop in context precision suggests the
+fine-tuned model may retrieve less precisely ranked context.
 
 **Fine-tuning does not close the gap with GPT-4o-mini.** Config D's faithfulness (0.691) and
 context precision (0.383) remain below Config B. This is an honest and expected result —
